@@ -10,12 +10,12 @@ import (
 // Structure of a single block in the blockchain
 
 type Block struct {
-	Index      int64     // Index of the block
-	Timestamp  time.Time // Timestamp when the block was created
-	MerkelRoot []byte    // Merkel root hash of the file associated with the block
-	PrevHash   []byte    // Hash of the previous block in the blockchain
-	Hash       []byte    // Hash of the current block
-	Nonce      int       // Nonce used for proof of work
+	Index      int64     `json:"index"`      // Index of the block
+	Timestamp  time.Time `json:"timestamp"`  // Timestamp when the block was created
+	MerkelRoot []byte    `json:"merkelRoot"` // Merkel root hash of the file associated with the block
+	PrevHash   []byte    `json:"prevHash"`   // Hash of the previous block in the blockchain
+	Hash       []byte    `json:"hash"`       // Hash of the current block
+	Nonce      int       `json:"nonce"`      // Nonce used for proof of work
 }
 
 // Function to calculate the hash of a block
@@ -77,4 +77,19 @@ func validateProofOfWork(hash []byte, difficulty int) bool {
 		}
 	}
 	return true
+}
+
+// Function to create a new block and return a pointer to it
+func createBlock(blockchain *Blockchain, merkelRoot []byte) *Block {
+	prevBlock := blockchain.Blocks[len(blockchain.Blocks)-1]
+	block := &Block{
+		Index:      prevBlock.Index + 1,
+		Timestamp:  time.Now(),
+		MerkelRoot: merkelRoot,
+		PrevHash:   prevBlock.Hash,
+		Hash:       nil,
+		Nonce:      0,
+	}
+	block.Hash = block.calculateHash()
+	return block
 }
