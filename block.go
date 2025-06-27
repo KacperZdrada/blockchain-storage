@@ -2,6 +2,7 @@ package blockchain_storage
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"strconv"
 	"time"
@@ -52,30 +53,95 @@ func (block *Block) isValid(prevBlock *Block, difficulty int) bool {
 	return true
 }
 
-// Function for proof of work of a block
-func (block *Block) proofOfWork(difficulty int) {
-	// Infinitely loop trying to find a nonce that will allow the hash to meet the proof of work condition
+// PowResult - Structure for holding the proof of work result found by a miner
+type PowResult struct {
+	Nonce int
+	Hash  []byte
+}
+
+// Function for handling asynchronous mining for proof of work
+// difficulty - number of hex digits at the start of the hash that need to be zero
+// channels - number of asynchronous miner workers to use
+func (block *Block) proofOfWork(difficulty int, channels int) {
+	// Create a shared channel that all workers can send their result down
+	result := make(chan *PowResult)
+
+	// Create a cancellable context to signal to workers to end computation once a result has been found
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start all workers
+	for i := 0; i < channels; i++ {
+		go proofOfWorkMiner(ctx, difficulty, i, channels, result, *block)
+	}
+
+	// Wait for the first valid nonce that fulfills the difficulty
+	finalResult := <-result
+
+	// Cancel all other workers as result has been found
+	cancel()
+
+	// Set the block's attributes to the result values
+	block.Hash = finalResult.Hash
+	block.Nonce = finalResult.Nonce
+}
+
+// Function for a single proof of work miner
+// The block is passed in via parameters as it is then pass by value (copied) and each worker gets its own copy
+func proofOfWorkMiner(ctx context.Context, difficulty int, startNonce int, nonceIncrement int, result chan *PowResult, block Block) {
+	// Set the starting nonce of the block
+	block.Nonce = startNonce
+
+	// Infinitely loop trying to find a valid nonce
 	for {
-		hash := block.calculateHash()
-		// Check to see if the proof is valid and if valid set the blocks hash and exit function
-		if validateProofOfWork(hash, difficulty) {
-			block.Hash = hash
-			break
-			// Increment the nonce if the proof is not valid
-		} else {
-			block.Nonce++
+		//
+		select {
+		// If context is done, another worker has found a valid nonce first so can immediately return
+		case <-ctx.Done():
+			return
+		default:
+			// Calculate the hash of the block
+			hash := block.calculateHash()
+
+			// Check if the hash is a valid solution
+			if validateProofOfWork(hash, difficulty) {
+				// If it is valid, send a result of both the nonce and the hash down the results channel
+				result <- &PowResult{
+					Nonce: block.Nonce,
+					Hash:  hash,
+				}
+				return
+			} else {
+				// The hash is not a valid solution so increment the nonce by the number of workers used
+				block.Nonce += nonceIncrement
+			}
+
 		}
 	}
 }
 
-// Function for validating the proof of work
+// Function that validates the proof of work by checking the first difficulty hex digits are zero
+// This is equivalent to checking the first difficulty nibbles (4 bits = 1 hex digit) are zero
 func validateProofOfWork(hash []byte, difficulty int) bool {
-	// Check if the first difficulty bytes are zero
-	for i := 0; i < difficulty; i++ {
+	// Initially check the number of full bytes that are zero
+	// This checks two hex digits at a time
+	fullBytes := difficulty / 2
+	for i := 0; i < fullBytes; i++ {
 		if hash[i] != 0 {
 			return false
 		}
 	}
+
+	// If the difficulty is an odd number, the last nibble needs to be checked
+	if difficulty%2 == 1 {
+		// 0xF0 is 11110000
+		// A bitwise AND operation will only be zero if the nibble being checked is zero
+		// This is because the AND mask keeps the first 4 bits and zeroes out the last 4 and so is zero iff
+		// the first 4 bits are zero
+		if hash[fullBytes]&0xF0 != 0 {
+			return false
+		}
+	}
+
 	return true
 }
 
