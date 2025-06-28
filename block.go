@@ -4,9 +4,19 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"math/big"
 	"strconv"
 	"time"
 )
+
+// Initialise global big Integer variables
+var one *big.Int = big.NewInt(1)
+var maxHash *big.Int = new(big.Int) // Represents the max integer value a 256-bit hash can have
+
+func init() {
+	maxHash.Lsh(one, 256)     // Left shifts 1 256 times (1 followed by 256 zeroes)
+	maxHash.Sub(maxHash, one) // Subtracts 1 to just get 256 1's
+}
 
 // Structure of a single block in the blockchain
 
@@ -33,7 +43,7 @@ func (block *Block) calculateHash() []byte {
 
 // Function to check if a block is valid
 // Note that this does not work for the genesis block
-func (block *Block) isValid(prevBlock *Block, difficulty int) bool {
+func (block *Block) isValid(prevBlock *Block, difficulty uint) bool {
 	// First check if block's hash is correct
 	if !bytes.Equal(block.Hash, block.calculateHash()) {
 		return false
@@ -47,7 +57,8 @@ func (block *Block) isValid(prevBlock *Block, difficulty int) bool {
 		return false
 	}
 	// Check the proof of work is valid
-	if !validateProofOfWork(block.Hash, difficulty) {
+	target := new(big.Int).Rsh(maxHash, difficulty)
+	if new(big.Int).SetBytes(block.Hash).Cmp(target) > 0 {
 		return false
 	}
 	return true
@@ -62,16 +73,20 @@ type PowResult struct {
 // Function for handling asynchronous mining for proof of work
 // difficulty - number of hex digits at the start of the hash that need to be zero
 // channels - number of asynchronous miner workers to use
-func (block *Block) proofOfWork(difficulty int, channels int) {
+func (block *Block) mine(difficulty uint, channels int) {
 	// Create a shared channel that all workers can send their result down
 	result := make(chan *PowResult)
 
 	// Create a cancellable context to signal to workers to end computation once a result has been found
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Calculate that target that the hash needs to be smaller than or equal to based on the difficulty
+	// This involves right shifting the max hash value by the difficulty (equivalent to leading number of zeroes)
+	target := new(big.Int).Rsh(maxHash, difficulty)
+
 	// Start all workers
 	for i := 0; i < channels; i++ {
-		go proofOfWorkMiner(ctx, difficulty, i, channels, result, *block)
+		go proofOfWorkMiner(ctx, target, i, channels, result, *block)
 	}
 
 	// Wait for the first valid nonce that fulfills the difficulty
@@ -87,11 +102,12 @@ func (block *Block) proofOfWork(difficulty int, channels int) {
 
 // Function for a single proof of work miner
 // The block is passed in via parameters as it is then pass by value (copied) and each worker gets its own copy
-func proofOfWorkMiner(ctx context.Context, difficulty int, startNonce int, nonceIncrement int, result chan *PowResult, block Block) {
-	// Set the starting nonce of the block
+func proofOfWorkMiner(ctx context.Context, target *big.Int, startNonce int, nonceIncrement int, result chan *PowResult, block Block) {
+	// Set the starting nonce of the block and declare the integer representation of the hash
 	block.Nonce = startNonce
-
+	hashInt := new(big.Int)
 	// Infinitely loop trying to find a valid nonce
+	// TODO: Implement logic for if nonce overflows
 	for {
 		//
 		select {
@@ -99,11 +115,12 @@ func proofOfWorkMiner(ctx context.Context, difficulty int, startNonce int, nonce
 		case <-ctx.Done():
 			return
 		default:
-			// Calculate the hash of the block
+			// Calculate the hash of the block and its integer representation
 			hash := block.calculateHash()
+			hashInt = hashInt.SetBytes(hash)
 
-			// Check if the hash is a valid solution
-			if validateProofOfWork(hash, difficulty) {
+			// Check if the hash is a valid solution (less than or equal to the target)
+			if hashInt.Cmp(target) <= 0 {
 				// If it is valid, send a result of both the nonce and the hash down the results channel
 				result <- &PowResult{
 					Nonce: block.Nonce,
@@ -114,35 +131,8 @@ func proofOfWorkMiner(ctx context.Context, difficulty int, startNonce int, nonce
 				// The hash is not a valid solution so increment the nonce by the number of workers used
 				block.Nonce += nonceIncrement
 			}
-
 		}
 	}
-}
-
-// Function that validates the proof of work by checking the first difficulty hex digits are zero
-// This is equivalent to checking the first difficulty nibbles (4 bits = 1 hex digit) are zero
-func validateProofOfWork(hash []byte, difficulty int) bool {
-	// Initially check the number of full bytes that are zero
-	// This checks two hex digits at a time
-	fullBytes := difficulty / 2
-	for i := 0; i < fullBytes; i++ {
-		if hash[i] != 0 {
-			return false
-		}
-	}
-
-	// If the difficulty is an odd number, the last nibble needs to be checked
-	if difficulty%2 == 1 {
-		// 0xF0 is 11110000
-		// A bitwise AND operation will only be zero if the nibble being checked is zero
-		// This is because the AND mask keeps the first 4 bits and zeroes out the last 4 and so is zero iff
-		// the first 4 bits are zero
-		if hash[fullBytes]&0xF0 != 0 {
-			return false
-		}
-	}
-
-	return true
 }
 
 // Function to create a new block and return a pointer to it
