@@ -54,7 +54,7 @@ func (blockchain *Blockchain) getBlockByMerkelRoot(merkelRoot []byte) (*Block, e
 // Function to validate the entire blockchain (works with blockchains length >= 1)
 func (blockchain *Blockchain) validateChain() bool {
 	for i := 1; i < len(blockchain.Blocks); i++ {
-		if !bytes.Equal(blockchain.Blocks[i].Hash, blockchain.Blocks[i-1].Hash) {
+		if !bytes.Equal(blockchain.Blocks[i].PrevHash, blockchain.Blocks[i-1].Hash) {
 			return false
 		}
 	}
