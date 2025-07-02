@@ -29,7 +29,9 @@ func TestBlock_calculateHash(t *testing.T) {
 func TestBlock_mine(t *testing.T) {
 	block := &Block{Index: 1, Timestamp: time.Now(), MerkelRoot: []byte("merkel"), PrevHash: []byte("prevhash")}
 	difficulty := uint(12)
-	block.mine(difficulty, 2)
+	if block.mine(difficulty, 2, 1) != nil {
+		t.Errorf("FAIL: Mining failed")
+	}
 
 	target := new(big.Int).Rsh(maxHash, difficulty)
 	hashInt := new(big.Int).SetBytes(block.Hash)
@@ -44,7 +46,9 @@ func TestBlock_isValid(t *testing.T) {
 	prevBlock := &Block{Index: 0, Hash: []byte("genesis_hash")}
 	block := &Block{Index: 1, Timestamp: time.Now(), MerkelRoot: []byte("new root"), PrevHash: prevBlock.Hash}
 	difficulty := uint(10)
-	block.mine(difficulty, 2)
+	if block.mine(difficulty, 2, 1) != nil {
+		t.Errorf("FAIL: Mining failed")
+	}
 
 	// Test a valid block
 	if !block.isValid(prevBlock, difficulty) {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
+	"math"
 	"math/big"
 	"strconv"
 	"time"
@@ -72,42 +74,63 @@ type PowResult struct {
 
 // Function for handling asynchronous mining for proof of work
 // difficulty - number of hex digits at the start of the hash that need to be zero
-// channels - number of asynchronous miner workers to use
-func (block *Block) mine(difficulty uint, channels int) {
-	// Create a shared channel that all workers can send their result down
-	result := make(chan *PowResult)
-
-	// Create a cancellable context to signal to workers to end computation once a result has been found
-	ctx, cancel := context.WithCancel(context.Background())
-
+// workers - number of asynchronous miner workers to use
+// retries - number of retries to attempt if the block is failed to be mined
+func (block *Block) mine(difficulty uint, workers int, retries int) error {
 	// Calculate that target that the hash needs to be smaller than or equal to based on the difficulty
 	// This involves right shifting the max hash value by the difficulty (equivalent to leading number of zeroes)
 	target := new(big.Int).Rsh(maxHash, difficulty)
 
-	// Start all workers
-	for i := 0; i < channels; i++ {
-		go proofOfWorkMiner(ctx, target, i, channels, result, *block)
+	attempts := 0
+	for attempts < retries {
+		// Create a shared channel that all workers can send their result down
+		result := make(chan *PowResult)
+
+		// Create a cancellable context to signal to workers to end computation once a result has been found
+		ctx, cancel := context.WithCancel(context.Background())
+
+		// Start all workers and initialise a counter for how many have failed
+		failed := 0
+		failure := make(chan bool, workers)
+		for i := 0; i < workers; i++ {
+			go proofOfWorkMiner(ctx, target, i, workers, result, failure, *block)
+		}
+
+		// Loop waiting for either a valid nonce to be found by any worker, or for all workers to fail
+		for failed < workers {
+			select {
+			case finalResult := <-result:
+				// Cancel all other workers as result has been found
+				cancel()
+
+				// Set the block's attributes to the result values
+				block.Hash = finalResult.Hash
+				block.Nonce = finalResult.Nonce
+
+				return nil
+			case <-failure:
+				failed++
+			}
+		}
+		// This code block can only be reached if all the workers have failed
+		// If so, cancel the context, increment the number of attempts, and change the timestamp of the block
+		// to the latest time to change its hash to attempt to find a valid nonce
+		cancel()
+		attempts++
+		block.Timestamp = time.Now()
 	}
 
-	// Wait for the first valid nonce that fulfills the difficulty
-	finalResult := <-result
-
-	// Cancel all other workers as result has been found
-	cancel()
-
-	// Set the block's attributes to the result values
-	block.Hash = finalResult.Hash
-	block.Nonce = finalResult.Nonce
+	// All attempts have been used up, return an error
+	return errors.New("failed to mine block")
 }
 
 // Function for a single proof of work miner
 // The block is passed in via parameters as it is then pass by value (copied) and each worker gets its own copy
-func proofOfWorkMiner(ctx context.Context, target *big.Int, startNonce int, nonceIncrement int, result chan *PowResult, block Block) {
+func proofOfWorkMiner(ctx context.Context, target *big.Int, startNonce int, nonceIncrement int, result chan *PowResult, failure chan bool, block Block) {
 	// Set the starting nonce of the block and declare the integer representation of the hash
 	block.Nonce = startNonce
 	hashInt := new(big.Int)
-	// Infinitely loop trying to find a valid nonce
-	// TODO: Implement logic for if nonce overflows
+	// Loop trying to find a valid nonce until an overflow is about to happen
 	for {
 		//
 		select {
@@ -128,6 +151,11 @@ func proofOfWorkMiner(ctx context.Context, target *big.Int, startNonce int, nonc
 				}
 				return
 			} else {
+				// Check if incrementing the nonce would cause an overflow (which wraps around in Go)
+				if block.Nonce > math.MaxInt-nonceIncrement {
+					failure <- true
+					return
+				}
 				// The hash is not a valid solution so increment the nonce by the number of workers used
 				block.Nonce += nonceIncrement
 			}
