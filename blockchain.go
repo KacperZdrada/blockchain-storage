@@ -3,12 +3,14 @@ package blockchain_storage
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"os"
 )
 
 // Blockchain structure
 type Blockchain struct {
-	Blocks                []*Block `json:"blockchain"`
+	Blocks                []*Block `json:"blocks"`
 	BlocksMapByHash       map[string]*Block
 	BlocksMapByMerkelRoot map[string]*Block
 }
@@ -59,4 +61,47 @@ func (blockchain *Blockchain) validateChain() bool {
 		}
 	}
 	return true
+}
+
+// Function to write the entire blockchain to a file for persistence
+func (blockchain *Blockchain) writeToFile(filepath string) error {
+	// Convert blockchain (list of blocks only) to JSON
+	// The maps are not saved as this is simply duplicating data
+	jsonBlockchain, err := json.MarshalIndent(blockchain.Blocks, "", "  ")
+	if err != nil {
+		return err
+	}
+	// File permissions 0644 means read and write for file owner, but read-only for group and others
+	return os.WriteFile(filepath, jsonBlockchain, 0644)
+}
+
+// Function to read the blockchain from a JSON file and load into memory
+func blockchainFromFile(filepath string) (*Blockchain, error) {
+	// Read the json file
+	jsonBlockchain, err := os.ReadFile(filepath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the json byte data into structs
+	var blocks []*Block
+	err = json.Unmarshal(jsonBlockchain, &blocks)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create blockchain structure
+	blockchain := &Blockchain{
+		Blocks:                blocks,
+		BlocksMapByHash:       make(map[string]*Block),
+		BlocksMapByMerkelRoot: make(map[string]*Block),
+	}
+
+	// Create the mappings that were not saved
+	for _, block := range blocks {
+		blockchain.BlocksMapByHash[hex.EncodeToString(block.Hash)] = block
+		blockchain.BlocksMapByMerkelRoot[hex.EncodeToString(block.MerkelRoot)] = block
+	}
+
+	return blockchain, nil
 }

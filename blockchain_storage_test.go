@@ -3,7 +3,10 @@ package blockchain_storage
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -270,5 +273,52 @@ func TestNewMerkleTree_SingleLeaf(t *testing.T) {
 
 	if !validateMerkleProof(data[0], tree.Root.Hash, proof) {
 		t.Errorf("FAIL: Validation failed for a single leaf tree")
+	}
+}
+
+// Test the blockchain persistence through file read/writing
+func TestPersistence(t *testing.T) {
+	//Create a temporary directory and an original blockchain
+	tempDir := t.TempDir()
+	testFile := filepath.Join(tempDir, "blockchain.json")
+
+	originalBlockchain := &Blockchain{
+		Blocks: []*Block{
+			{Index: 0, Hash: []byte("hash0"), MerkelRoot: []byte("merkel0")},
+			{Index: 1, Hash: []byte("hash1"), MerkelRoot: []byte("merkel1")},
+		},
+	}
+
+	// est writeToFile
+	err := originalBlockchain.writeToFile(testFile)
+	if err != nil {
+		t.Fatalf("writeToFile() failed with error: %v", err)
+	}
+
+	// Check that the file was actually created
+	if _, err := os.Stat(testFile); os.IsNotExist(err) {
+		t.Fatalf("writeToFile() did not create the file at %s", testFile)
+	}
+
+	// Test blockchainFromFile
+	loadedBlockchain, err := blockchainFromFile(testFile)
+	if err != nil {
+		t.Fatalf("blockchainFromFile() failed with error: %v", err)
+	}
+
+	// Check if the number of blocks is the same
+	if len(loadedBlockchain.Blocks) != len(originalBlockchain.Blocks) {
+		t.Fatalf("Loaded blockchain has wrong number of blocks. Got %d, want %d", len(loadedBlockchain.Blocks), len(originalBlockchain.Blocks))
+	}
+
+	// Check if the block data is consistent
+	if !bytes.Equal(loadedBlockchain.Blocks[1].Hash, originalBlockchain.Blocks[1].Hash) {
+		t.Errorf("Loaded block data does not match original data")
+	}
+
+	// Check if the lookup maps were rebuilt correctly
+	_, ok := loadedBlockchain.BlocksMapByHash[hex.EncodeToString(originalBlockchain.Blocks[1].Hash)]
+	if !ok {
+		t.Errorf("Map lookup failed in loaded blockchain, indicating maps were not rebuilt")
 	}
 }
