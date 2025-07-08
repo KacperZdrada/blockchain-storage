@@ -16,7 +16,7 @@ type Blockchain struct {
 }
 
 // Function to add a new block to the blockchain (via pointer)
-func (blockchain *Blockchain) addBlock(block *Block) {
+func (blockchain *Blockchain) AddBlock(block *Block) {
 	// Add the block pointer to the list
 	blockchain.Blocks = append(blockchain.Blocks, block)
 	// Add the block pointer to a hashmap between hash of blocks and block pointers
@@ -26,17 +26,17 @@ func (blockchain *Blockchain) addBlock(block *Block) {
 }
 
 // Function to retrieve a pointer to the last block of the Blockchain
-func (blockchain *Blockchain) lastBlock() *Block {
+func (blockchain *Blockchain) LastBlock() *Block {
 	return blockchain.Blocks[len(blockchain.Blocks)-1]
 }
 
 // Function to retrieve the length of the blockchain
-func (blockchain *Blockchain) length() int {
+func (blockchain *Blockchain) Length() int {
 	return len(blockchain.Blocks)
 }
 
 // Function to retrieve a pointer to a block according to its hash
-func (blockchain *Blockchain) getBlockByHash(hash []byte) (*Block, error) {
+func (blockchain *Blockchain) GetBlockByHash(hash []byte) (*Block, error) {
 	block, found := blockchain.BlocksMapByHash[hex.EncodeToString(hash)]
 	if !found {
 		return nil, errors.New("no block with matching hash in the blockchain")
@@ -45,7 +45,7 @@ func (blockchain *Blockchain) getBlockByHash(hash []byte) (*Block, error) {
 }
 
 // Function to retrieve a pointer to a block according to the merkel root
-func (blockchain *Blockchain) getBlockByMerkelRoot(merkelRoot []byte) (*Block, error) {
+func (blockchain *Blockchain) GetBlockByMerkelRoot(merkelRoot []byte) (*Block, error) {
 	block, found := blockchain.BlocksMapByMerkelRoot[hex.EncodeToString(merkelRoot)]
 	if !found {
 		return nil, errors.New("no block with matching merkel root in the blockchain")
@@ -64,7 +64,7 @@ func (blockchain *Blockchain) validateChain() bool {
 }
 
 // Function to write the entire blockchain to a file for persistence
-func (blockchain *Blockchain) writeToFile(filepath string) error {
+func (blockchain *Blockchain) WriteToFile(filepath string) error {
 	// Convert blockchain (list of blocks only) to JSON
 	// The maps are not saved as this is simply duplicating data
 	jsonBlockchain, err := json.MarshalIndent(blockchain.Blocks, "", "  ")
@@ -76,7 +76,7 @@ func (blockchain *Blockchain) writeToFile(filepath string) error {
 }
 
 // Function to read the blockchain from a JSON file and load into memory
-func blockchainFromFile(filepath string) (*Blockchain, error) {
+func BlockchainFromFile(filepath string) (*Blockchain, error) {
 	// Read the json file
 	jsonBlockchain, err := os.ReadFile(filepath)
 	if err != nil {

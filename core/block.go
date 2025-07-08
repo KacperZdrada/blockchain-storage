@@ -76,7 +76,7 @@ type PowResult struct {
 // difficulty - number of hex digits at the start of the hash that need to be zero
 // workers - number of asynchronous miner workers to use
 // retries - number of retries to attempt if the block is failed to be mined
-func (block *Block) mine(difficulty uint, workers int, retries int) error {
+func (block *Block) Mine(difficulty uint, workers int, retries int) error {
 	// Calculate that target that the hash needs to be smaller than or equal to based on the difficulty
 	// This involves right shifting the max hash value by the difficulty (equivalent to leading number of zeroes)
 	target := new(big.Int).Rsh(maxHash, difficulty)
@@ -164,7 +164,7 @@ func proofOfWorkMiner(ctx context.Context, target *big.Int, startNonce int, nonc
 }
 
 // Function to create a new block and return a pointer to it
-func createBlock(blockchain *Blockchain, merkelRoot []byte) *Block {
+func CreateBlock(blockchain *Blockchain, merkelRoot []byte) *Block {
 	prevBlock := blockchain.Blocks[len(blockchain.Blocks)-1]
 	block := &Block{
 		Index:      prevBlock.Index + 1,

@@ -6,7 +6,7 @@ import (
 )
 
 // Function that chunks a file given a filepath and a chunk size in MB
-func chunkFile(filepath string, chunkSizeMB int64) ([][]byte, error) {
+func ChunkFile(filepath string, chunkSizeMB int64) ([][]byte, error) {
 	// Open the file and check for any errors. Defer the closing of the file for when the function returns
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -41,7 +41,7 @@ func chunkFile(filepath string, chunkSizeMB int64) ([][]byte, error) {
 }
 
 // Function that builds a file from its chunks
-func buildFile(filepath string, chunks [][]byte) error {
+func BuildFile(filepath string, chunks [][]byte) error {
 	// Creates a file given the filepath. If it already exists the file gets truncated
 	// Check for any errors and defer the closing of the file until after the function returns
 	file, err := os.Create(filepath)
