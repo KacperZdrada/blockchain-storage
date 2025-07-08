@@ -1,6 +1,7 @@
-package blockchain_storage
+package core
 
 import (
+	"blockchain-storage"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -167,7 +168,7 @@ func TestNewMerkleTree_EvenLeaves(t *testing.T) {
 		[]byte("chunk4"),
 	}
 
-	tree := newMerkleTree(data)
+	tree := blockchain_storage.newMerkleTree(data)
 
 	// Manually calculate expected root hash
 	h1 := sha256.Sum256(data[0])
@@ -197,7 +198,7 @@ func TestNewMerkleTree_OddLeaves(t *testing.T) {
 		[]byte("chunk3"),
 	}
 
-	tree := newMerkleTree(data)
+	tree := blockchain_storage.newMerkleTree(data)
 
 	// Manually calculate expected root hash for odd leaves (last one is duplicated)
 	h1 := sha256.Sum256(data[0])
@@ -223,24 +224,24 @@ func TestMerkleProof(t *testing.T) {
 		[]byte("4"),
 		[]byte("5"),
 	}
-	tree := newMerkleTree(data)
+	tree := blockchain_storage.newMerkleTree(data)
 	merkleRoot := tree.Root.Hash
 
 	// Test a valid proof for one of the chunks
 	chunkIndex := 2
 	validProof := tree.generateMerkleProof(chunkIndex)
 
-	if !validateMerkleProof(data[chunkIndex], merkleRoot, validProof) {
+	if !blockchain_storage.validateMerkleProof(data[chunkIndex], merkleRoot, validProof) {
 		t.Errorf("FAIL: A valid merkle proof failed to validate")
 	}
 
 	// Test with incorrect data
-	if validateMerkleProof([]byte("6"), merkleRoot, validProof) {
+	if blockchain_storage.validateMerkleProof([]byte("6"), merkleRoot, validProof) {
 		t.Errorf("FAIL: Merkle proof validated with incorrect data")
 	}
 
 	// Test with an incorrect merkle root
-	if validateMerkleProof(data[chunkIndex], []byte("bad root"), validProof) {
+	if blockchain_storage.validateMerkleProof(data[chunkIndex], []byte("bad root"), validProof) {
 		t.Errorf("FAIL: Merkle proof validated with an incorrect root hash")
 	}
 
@@ -249,7 +250,7 @@ func TestMerkleProof(t *testing.T) {
 	copy(tamperedProof, validProof)
 	hashArray := sha256.Sum256([]byte("tampered hash"))
 	tamperedProof[0].Hash = hashArray[:]
-	if validateMerkleProof(data[chunkIndex], merkleRoot, tamperedProof) {
+	if blockchain_storage.validateMerkleProof(data[chunkIndex], merkleRoot, tamperedProof) {
 		t.Errorf("FAIL: A tampered merkle proof was successfully validated")
 	}
 }
@@ -257,7 +258,7 @@ func TestMerkleProof(t *testing.T) {
 // Tests edge case of a tree with only one chunk
 func TestNewMerkleTree_SingleLeaf(t *testing.T) {
 	data := [][]byte{[]byte("single chunk")}
-	tree := newMerkleTree(data)
+	tree := blockchain_storage.newMerkleTree(data)
 
 	expectedRoot := sha256.Sum256(data[0])
 
@@ -271,7 +272,7 @@ func TestNewMerkleTree_SingleLeaf(t *testing.T) {
 		t.Errorf("FAIL: Merkle proof for a single leaf tree should be empty")
 	}
 
-	if !validateMerkleProof(data[0], tree.Root.Hash, proof) {
+	if !blockchain_storage.validateMerkleProof(data[0], tree.Root.Hash, proof) {
 		t.Errorf("FAIL: Validation failed for a single leaf tree")
 	}
 }

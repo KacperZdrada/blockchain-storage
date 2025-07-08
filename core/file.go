@@ -1,4 +1,4 @@
-package blockchain_storage
+package core
 
 import (
 	"io"
