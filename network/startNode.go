@@ -18,7 +18,7 @@ import (
 var Peers []*peer.AddrInfo
 var PeersMutex = &sync.Mutex{}
 
-func StartNode(port int, bootstrapAddr string, protocol string) error {
+func StartNode(port int, bootstrapAddr string) error {
 	// Context created for many of the network calls
 	ctx := context.Background()
 
@@ -34,7 +34,7 @@ func StartNode(port int, bootstrapAddr string, protocol string) error {
 		return err
 	}
 
-	// TODO: Add in protocol handlers
+	host.SetStreamHandler(protocol, handleStream)
 
 	// Create a local distributed hash table for peer discovery
 	// Its mode is set to server so that it can respond to query requests
@@ -77,7 +77,7 @@ func StartNode(port int, bootstrapAddr string, protocol string) error {
 	util.Advertise(ctx, routingDiscovery, protocol)
 
 	// Attempt to discover other peers
-	go discoverPeers(ctx, host, routingDiscovery, protocol)
+	go discoverPeers(ctx, host, routingDiscovery)
 
 	// Temporarily block forever with a select statement (will be removed)
 	select {}
@@ -124,6 +124,7 @@ func connectToBootstrapPeer(ctx context.Context, host host.Host, peerAddr *peer.
 		success <- false
 	} else {
 		PeersMutex.Lock()
+		// Connection successful so add peer to list of peers
 		Peers = append(Peers, peerAddr)
 		PeersMutex.Unlock()
 		success <- true
@@ -131,20 +132,26 @@ func connectToBootstrapPeer(ctx context.Context, host host.Host, peerAddr *peer.
 }
 
 // Function used to discover other peers once connected to the bootstrap network
-func discoverPeers(ctx context.Context, host host.Host, routingDiscovery *routing.RoutingDiscovery, protocol string) {
+func discoverPeers(ctx context.Context, host host.Host, routingDiscovery *routing.RoutingDiscovery) {
+	// Create a channel on which new peers will be discovered
 	peerChan, err := routingDiscovery.FindPeers(ctx, protocol)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+
+	// Infinitely loop waiting for a new peer to be discovered
 	for peer := range peerChan {
 		if peer.ID == host.ID() {
 			continue
 		}
+
+		// Attempt a connection to the peer
 		err := host.Connect(ctx, peer)
 		if err != nil {
 			fmt.Printf("Failed to connect to peer %s for reason %s", peer.ID, err)
 		} else {
+			// If connection successful add it to the list of peers
 			PeersMutex.Lock()
 			Peers = append(Peers, &peer)
 			PeersMutex.Unlock()
