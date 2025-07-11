@@ -2,10 +2,12 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	"github.com/libp2p/go-libp2p/p2p/discovery/util"
@@ -55,7 +57,13 @@ func StartNode(port int, bootstrapAddr string, protocol string) error {
 		bootstrapPeers = append(bootstrapPeers, peerInfo)
 	}
 
-	// TODO: connectToBootstrapPeers()
+	// Check if bootstrap peers provided and if so connect to them
+	if len(bootstrapPeers) > 0 {
+		err := connectToBootstrapPeers(ctx, host, bootstrapPeers)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Create a helper discovery object with the local DHT as its routing system
 	// It acts as a high-level API for discovery operations with the DHT
@@ -66,4 +74,48 @@ func StartNode(port int, bootstrapAddr string, protocol string) error {
 
 	// Temporarily block forever with a select statement (will be removed)
 	select {}
+}
+
+// Function used to connect to a number of bootstrap peers
+func connectToBootstrapPeers(ctx context.Context, host host.Host, bootstrapPeers []*peer.AddrInfo) error {
+	// Keep track of the amount of successfully connected nodes
+	connected := 0
+	// Keep track of attempted connections made (unsuccessful or successful)
+	attempted := 0
+
+	// Make a channel for the result of each attempted connection
+	success := make(chan bool)
+
+	// Attempt connection to each bootstrap peer
+	for _, peerInfo := range bootstrapPeers {
+		go connectToPeer(ctx, host, peerInfo, success)
+	}
+
+	// Wait for each connection to be attempted and count how many were successful
+	for attempted < len(bootstrapPeers) {
+		result := <-success
+		if result {
+			connected++
+		}
+		attempted++
+	}
+
+	// If the number of successful connection was zero, return an error
+	if connected == 0 {
+		return errors.New("did not successfully connect to any bootstrap peers")
+	}
+
+	// Otherwise at least one bootstrap peer was connected to, so even if any others failed, can safely ignore
+	return nil
+}
+
+// Function used to connect to an individual peer
+func connectToPeer(ctx context.Context, host host.Host, peerAddr *peer.AddrInfo, success chan bool) {
+	err := host.Connect(ctx, *peerAddr)
+	if err != nil {
+		// If connection errored, report this back to handler function
+		success <- false
+	} else {
+		success <- true
+	}
 }
