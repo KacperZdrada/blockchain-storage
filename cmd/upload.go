@@ -38,6 +38,7 @@ var uploadCmd = &cobra.Command{
 
 		// TODO: Check blockchain length from network
 
+		// TODO: Change the code to request the blockchain from the background daemon holding the state and use that
 		blockchain, err := core.BlockchainFromFile("../storage/blockchain.json")
 		if err != nil {
 			return err
@@ -51,15 +52,8 @@ var uploadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
-		// At this point in execution block must have successfully been mined so add it to the blockchain
+		
 		blockchain.AddBlock(block)
-
-		// Save blockchain back to file
-		err = blockchain.WriteToFile("../storage/blockchain.json")
-		if err != nil {
-			return err
-		}
 
 		// Exit successfully
 		return nil

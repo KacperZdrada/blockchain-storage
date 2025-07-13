@@ -1,6 +1,8 @@
 package network
 
 import (
+	"blockchain-storage/cmd"
+	"blockchain-storage/core"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -37,41 +39,66 @@ func handleStream(stream network.Stream) {
 
 func determineHandler(rw *bufio.ReadWriter) {
 	for {
-		// Read a full message
+		// Read a full message (which is all the way up to the \n delimeter)
 		str, err := rw.ReadString('\n')
 		if err != nil {
-			if err != io.EOF {
+			if err == io.EOF {
+				// Once the error is an end of file, break from the loop reading the messages
 				break
 			} else {
+				// Log the other error
 				fmt.Printf("error encountered when reading stream: %s", err)
 				return
 			}
 		}
+		// If the message is empty or a newline (message delimeter), continue onto the next message
 		if str == "" || str == "\n" {
 			continue
 		}
+
+		// Initialise the variable to hold the message and unmarshal the json into it
 		var message Message
 		if err := json.Unmarshal([]byte(str), &message); err != nil {
+			// If there is an error unmarshalling continue onto the next message
 			fmt.Printf("error encountered when unmarshalling message: %s", err)
 			continue
 		}
+
+		// Determine the message type and call the appropriate handler
 		switch message.Type {
 		case SendNewBlock:
-			handleSendNewBlock()
+			handleSendNewBlock(message.Payload)
 		case SendChunks:
-			handleSendChunks()
+			handleSendChunks(message.Payload)
 		case RequestChunks:
-			handleRequestChunks()
+			handleRequestChunks(message.Payload)
 		case RequestBlockchain:
-			handleRequestBlockchain()
+			handleRequestBlockchain(message.Payload)
 		}
 	}
 }
 
-func handleSendNewBlock() {}
+// Handler for when a node receives a new blockchain block
+func handleSendNewBlock(payload json.RawMessage) {
+	// Initialise the block variable and unmarshall the json into it
+	var block core.Block
+	if err := json.Unmarshal(payload, &block); err != nil {
+		// If an error occurs, immediately return
+		fmt.Printf("error encountered when unmarshalling payload: %s", err)
+		return
+	}
+	cmd.NodeState.Mutex.Lock()
+	// Verify that the block is valid and if so add it to the blockchain
+	if block.IsValid(cmd.NodeState.Blockchain.LastBlock(), uint(5)) {
+		cmd.NodeState.Blockchain.AddBlock(&block)
+	}
+	cmd.NodeState.Mutex.Unlock()
+	// If block is not valid, simply reject it by returning
+	return
+}
 
-func handleSendChunks() {}
+func handleSendChunks(payload json.RawMessage) {}
 
-func handleRequestChunks() {}
+func handleRequestChunks(payload json.RawMessage) {}
 
-func handleRequestBlockchain() {}
+func handleRequestBlockchain(payload json.RawMessage) {}

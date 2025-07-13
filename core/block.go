@@ -45,7 +45,7 @@ func (block *Block) calculateHash() []byte {
 
 // Function to check if a block is valid
 // Note that this does not work for the genesis block
-func (block *Block) isValid(prevBlock *Block, difficulty uint) bool {
+func (block *Block) IsValid(prevBlock *Block, difficulty uint) bool {
 	// First check if block's hash is correct
 	if !bytes.Equal(block.Hash, block.calculateHash()) {
 		return false
