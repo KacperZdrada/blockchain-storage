@@ -1,7 +1,6 @@
 package core
 
 import (
-	"blockchain-storage"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -33,7 +32,7 @@ func TestBlock_calculateHash(t *testing.T) {
 func TestBlock_mine(t *testing.T) {
 	block := &Block{Index: 1, Timestamp: time.Now(), MerkelRoot: []byte("merkel"), PrevHash: []byte("prevhash")}
 	difficulty := uint(12)
-	if block.mine(difficulty, 2, 1) != nil {
+	if block.Mine(difficulty, 2, 1) != nil {
 		t.Errorf("FAIL: Mining failed")
 	}
 
@@ -50,26 +49,26 @@ func TestBlock_isValid(t *testing.T) {
 	prevBlock := &Block{Index: 0, Hash: []byte("genesis_hash")}
 	block := &Block{Index: 1, Timestamp: time.Now(), MerkelRoot: []byte("new root"), PrevHash: prevBlock.Hash}
 	difficulty := uint(10)
-	if block.mine(difficulty, 2, 1) != nil {
+	if block.Mine(difficulty, 2, 1) != nil {
 		t.Errorf("FAIL: Mining failed")
 	}
 
 	// Test a valid block
-	if !block.isValid(prevBlock, difficulty) {
+	if !block.IsValid(prevBlock, difficulty) {
 		t.Errorf("FAIL: isValid() returned false for a valid block")
 	}
 
 	// Test invalid hash
 	originalMerkelRoot := block.MerkelRoot
 	block.MerkelRoot = []byte("tampered")
-	if block.isValid(prevBlock, difficulty) {
+	if block.IsValid(prevBlock, difficulty) {
 		t.Errorf("FAIL: isValid() returned true for a block with a hash that does not match its contents")
 	}
 	block.MerkelRoot = originalMerkelRoot
 
 	// Test invalid index
 	block.Index = 99
-	if block.isValid(prevBlock, difficulty) {
+	if block.IsValid(prevBlock, difficulty) {
 		t.Errorf("FAIL: isValid() returned true for a block with a non-sequential index")
 	}
 }
@@ -80,7 +79,7 @@ func Test_createBlock(t *testing.T) {
 	bc := &Blockchain{Blocks: []*Block{genesis}}
 
 	merkelRoot := []byte("new_merkel_root")
-	newBlock := createBlock(bc, merkelRoot)
+	newBlock := CreateBlock(bc, merkelRoot)
 
 	if newBlock.Index != genesis.Index+1 {
 		t.Errorf("FAIL: Expected index %d, got %d", genesis.Index+1, newBlock.Index)
@@ -99,15 +98,15 @@ func TestBlockchain_addBlock(t *testing.T) {
 	}
 
 	genesis := &Block{Hash: []byte("genesis_hash"), MerkelRoot: []byte("genesis_merkel")}
-	blockchain.addBlock(genesis)
+	blockchain.AddBlock(genesis)
 
 	newBlock := &Block{Hash: []byte("new_hash"), MerkelRoot: []byte("new_merkel")}
-	blockchain.addBlock(newBlock)
+	blockchain.AddBlock(newBlock)
 
-	if blockchain.length() != 2 {
+	if blockchain.Length() != 2 {
 		t.Errorf("FAIL: addBlock did not result in the correct blockchain length")
 	}
-	if !bytes.Equal(blockchain.lastBlock().Hash, newBlock.Hash) {
+	if !bytes.Equal(blockchain.LastBlock().Hash, newBlock.Hash) {
 		t.Errorf("FAIL: lastBlock is not the newly added block")
 	}
 }
@@ -120,16 +119,16 @@ func TestBlockchain_Getters(t *testing.T) {
 		BlocksMapByHash:       make(map[string]*Block),
 		BlocksMapByMerkelRoot: make(map[string]*Block),
 	}
-	blockchain.addBlock(block1)
+	blockchain.AddBlock(block1)
 
 	// Test successful get
-	foundBlock, err := blockchain.getBlockByHash([]byte("hash1"))
+	foundBlock, err := blockchain.GetBlockByHash([]byte("hash1"))
 	if err != nil || !bytes.Equal(foundBlock.Hash, block1.Hash) {
 		t.Errorf("FAIL: getBlockByHash failed to retrieve correct block")
 	}
 
 	// Test non-existent hash
-	_, err = blockchain.getBlockByHash([]byte("non_existent_hash"))
+	_, err = blockchain.GetBlockByHash([]byte("non_existent_hash"))
 	if err == nil {
 		t.Errorf("FAIL: getBlockByHash should have returned an error for non-existent hash")
 	}
@@ -144,8 +143,8 @@ func TestBlockchain_validateChain(t *testing.T) {
 	}
 	block1 := &Block{Hash: []byte("hash1"), PrevHash: []byte{}}
 	block2 := &Block{Hash: []byte("hash2"), PrevHash: []byte("hash1")}
-	blockchain.addBlock(block1)
-	blockchain.addBlock(block2)
+	blockchain.AddBlock(block1)
+	blockchain.AddBlock(block2)
 
 	// Test a valid chain
 	if !blockchain.validateChain() {
@@ -168,7 +167,7 @@ func TestNewMerkleTree_EvenLeaves(t *testing.T) {
 		[]byte("chunk4"),
 	}
 
-	tree := blockchain_storage.newMerkleTree(data)
+	tree := NewMerkleTree(data)
 
 	// Manually calculate expected root hash
 	h1 := sha256.Sum256(data[0])
@@ -198,7 +197,7 @@ func TestNewMerkleTree_OddLeaves(t *testing.T) {
 		[]byte("chunk3"),
 	}
 
-	tree := blockchain_storage.newMerkleTree(data)
+	tree := NewMerkleTree(data)
 
 	// Manually calculate expected root hash for odd leaves (last one is duplicated)
 	h1 := sha256.Sum256(data[0])
@@ -224,24 +223,24 @@ func TestMerkleProof(t *testing.T) {
 		[]byte("4"),
 		[]byte("5"),
 	}
-	tree := blockchain_storage.newMerkleTree(data)
+	tree := NewMerkleTree(data)
 	merkleRoot := tree.Root.Hash
 
 	// Test a valid proof for one of the chunks
 	chunkIndex := 2
-	validProof := tree.generateMerkleProof(chunkIndex)
+	validProof := tree.GenerateMerkleProof(chunkIndex)
 
-	if !blockchain_storage.validateMerkleProof(data[chunkIndex], merkleRoot, validProof) {
+	if !ValidateMerkleProof(data[chunkIndex], merkleRoot, validProof) {
 		t.Errorf("FAIL: A valid merkle proof failed to validate")
 	}
 
 	// Test with incorrect data
-	if blockchain_storage.validateMerkleProof([]byte("6"), merkleRoot, validProof) {
+	if ValidateMerkleProof([]byte("6"), merkleRoot, validProof) {
 		t.Errorf("FAIL: Merkle proof validated with incorrect data")
 	}
 
 	// Test with an incorrect merkle root
-	if blockchain_storage.validateMerkleProof(data[chunkIndex], []byte("bad root"), validProof) {
+	if ValidateMerkleProof(data[chunkIndex], []byte("bad root"), validProof) {
 		t.Errorf("FAIL: Merkle proof validated with an incorrect root hash")
 	}
 
@@ -250,7 +249,7 @@ func TestMerkleProof(t *testing.T) {
 	copy(tamperedProof, validProof)
 	hashArray := sha256.Sum256([]byte("tampered hash"))
 	tamperedProof[0].Hash = hashArray[:]
-	if blockchain_storage.validateMerkleProof(data[chunkIndex], merkleRoot, tamperedProof) {
+	if ValidateMerkleProof(data[chunkIndex], merkleRoot, tamperedProof) {
 		t.Errorf("FAIL: A tampered merkle proof was successfully validated")
 	}
 }
@@ -258,7 +257,7 @@ func TestMerkleProof(t *testing.T) {
 // Tests edge case of a tree with only one chunk
 func TestNewMerkleTree_SingleLeaf(t *testing.T) {
 	data := [][]byte{[]byte("single chunk")}
-	tree := blockchain_storage.newMerkleTree(data)
+	tree := NewMerkleTree(data)
 
 	expectedRoot := sha256.Sum256(data[0])
 
@@ -267,12 +266,12 @@ func TestNewMerkleTree_SingleLeaf(t *testing.T) {
 	}
 
 	// Proof for a single-node tree should be empty
-	proof := tree.generateMerkleProof(0)
+	proof := tree.GenerateMerkleProof(0)
 	if len(proof) != 0 {
 		t.Errorf("FAIL: Merkle proof for a single leaf tree should be empty")
 	}
 
-	if !blockchain_storage.validateMerkleProof(data[0], tree.Root.Hash, proof) {
+	if !ValidateMerkleProof(data[0], tree.Root.Hash, proof) {
 		t.Errorf("FAIL: Validation failed for a single leaf tree")
 	}
 }
@@ -291,7 +290,7 @@ func TestPersistence(t *testing.T) {
 	}
 
 	// est writeToFile
-	err := originalBlockchain.writeToFile(testFile)
+	err := originalBlockchain.WriteToFile(testFile)
 	if err != nil {
 		t.Fatalf("writeToFile() failed with error: %v", err)
 	}
@@ -302,7 +301,7 @@ func TestPersistence(t *testing.T) {
 	}
 
 	// Test blockchainFromFile
-	loadedBlockchain, err := blockchainFromFile(testFile)
+	loadedBlockchain, err := BlockchainFromFile(testFile)
 	if err != nil {
 		t.Fatalf("blockchainFromFile() failed with error: %v", err)
 	}
