@@ -30,6 +30,19 @@ type Message struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+// RequestChunksPayload defines the structure of a message that will request a payload
+type RequestChunksPayload struct {
+	MerkleRoot   string `json:"merkleRoot" `  // Identifies the file the chunks belong to
+	ChunkIndices []int  `json:"chunkIndices"` //A list of indexes of the chunks wanted
+}
+
+// RequestChunksResponse defines the structure of a response to a chunks request
+// MerkleProofs[i] holds the merkle proof for Chunks[i]
+type RequestChunksResponse struct {
+	Chunks       [][]byte           `json:"chunks"`       // List of all requested chunks
+	MerkleProofs []core.MerkleProof `json:"merkleProofs"` // List of proofs for each chunk
+}
+
 // Function that the host uses to handle a stream
 func handleStream(stream network.Stream) {
 	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
@@ -79,6 +92,8 @@ func determineHandler(rw *bufio.ReadWriter) {
 }
 
 // Handler for when a node receives a new blockchain block
+// Payload structure:
+// { Block }
 func handleSendNewBlock(payload json.RawMessage) {
 	// Initialise the block variable and unmarshall the json into it
 	var block core.Block
@@ -99,6 +114,29 @@ func handleSendNewBlock(payload json.RawMessage) {
 
 func handleSendChunks(payload json.RawMessage) {}
 
-func handleRequestChunks(payload json.RawMessage) {}
+// Handler for when a node receives a request for certain chunks held on the node
+func handleRequestChunks(payload json.RawMessage) {
+	// Initialise the payload variable and unmarshall the json into it
+	var messagePayload RequestChunksPayload
+	if err := json.Unmarshal(payload, &messagePayload); err != nil {
+		// If an error occurs, immediately return
+		fmt.Printf("error encountered when unmarshalling payload: %s", err)
+		return
+	}
+
+	// TODO: Read in each chunk and merkle tree from storage
+	var chunks [][]byte
+	var merkleTree core.MerkleTree
+	var proofs []core.MerkleProof
+
+	// For each chunk, generate its merkle proof and add it to the list
+	for _, index := range messagePayload.ChunkIndices {
+		proofs = append(proofs, merkleTree.GenerateMerkleProof(index))
+	}
+
+	response := RequestChunksResponse{Chunks: chunks, MerkleProofs: proofs}
+
+	// TODO: Call response handler
+}
 
 func handleRequestBlockchain(payload json.RawMessage) {}

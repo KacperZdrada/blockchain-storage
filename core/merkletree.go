@@ -86,6 +86,9 @@ func NewMerkleTree(fileChunks [][]byte) *MerkleTree {
 	}
 }
 
+// MerkleProof - A type for a slice of merkle proof steps
+type MerkleProof []MerkleProofStep
+
 // MerkleProofStep - A structure that holds each step of the Merkle Proof
 type MerkleProofStep struct {
 	Hash []byte // The hash of the current step in the proof
@@ -93,7 +96,7 @@ type MerkleProofStep struct {
 }
 
 // This function is used to generate a merkle proof for any file chunk
-func (merkleTree *MerkleTree) GenerateMerkleProof(chunkIndex int) []MerkleProofStep {
+func (merkleTree *MerkleTree) GenerateMerkleProof(chunkIndex int) MerkleProof {
 	node := merkleTree.Leaves[chunkIndex]
 	parent := node.Parent
 	var proof []MerkleProofStep
@@ -113,7 +116,7 @@ func (merkleTree *MerkleTree) GenerateMerkleProof(chunkIndex int) []MerkleProofS
 }
 
 // This function is used to verify a merkle proof for any file chunk
-func ValidateMerkleProof(data []byte, merkleRoot []byte, merkleProof []MerkleProofStep) bool {
+func ValidateMerkleProof(data []byte, merkleRoot []byte, merkleProof MerkleProof) bool {
 	// Calculate the hash of the data received
 	hash := sha256.Sum256(data)
 
