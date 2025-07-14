@@ -52,8 +52,8 @@ var uploadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		
-		blockchain.AddBlock(block)
+
+		blockchain.AddBlockToEnd(block)
 
 		// Exit successfully
 		return nil

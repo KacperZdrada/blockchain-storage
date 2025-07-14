@@ -76,7 +76,7 @@ func TestBlock_isValid(t *testing.T) {
 // Tests the creation of a new block
 func Test_createBlock(t *testing.T) {
 	genesis := &Block{Index: 0, Hash: []byte("genesis_hash")}
-	bc := &Blockchain{Blocks: []*Block{genesis}}
+	bc := &Blockchain{MainChain: []*Block{genesis}}
 
 	merkelRoot := []byte("new_merkel_root")
 	newBlock := CreateBlock(bc, merkelRoot)
@@ -92,16 +92,16 @@ func Test_createBlock(t *testing.T) {
 // Tests adding a block and verifies blockchain state
 func TestBlockchain_addBlock(t *testing.T) {
 	blockchain := &Blockchain{
-		Blocks:                []*Block{},
+		MainChain:             []*Block{},
 		BlocksMapByHash:       make(map[string]*Block),
 		BlocksMapByMerkelRoot: make(map[string]*Block),
 	}
 
 	genesis := &Block{Hash: []byte("genesis_hash"), MerkelRoot: []byte("genesis_merkel")}
-	blockchain.AddBlock(genesis)
+	blockchain.AddBlockToEnd(genesis)
 
 	newBlock := &Block{Hash: []byte("new_hash"), MerkelRoot: []byte("new_merkel")}
-	blockchain.AddBlock(newBlock)
+	blockchain.AddBlockToEnd(newBlock)
 
 	if blockchain.Length() != 2 {
 		t.Errorf("FAIL: addBlock did not result in the correct blockchain length")
@@ -115,11 +115,11 @@ func TestBlockchain_addBlock(t *testing.T) {
 func TestBlockchain_Getters(t *testing.T) {
 	block1 := &Block{Hash: []byte("hash1"), MerkelRoot: []byte("merkel1")}
 	blockchain := &Blockchain{
-		Blocks:                []*Block{},
+		MainChain:             []*Block{},
 		BlocksMapByHash:       make(map[string]*Block),
 		BlocksMapByMerkelRoot: make(map[string]*Block),
 	}
-	blockchain.AddBlock(block1)
+	blockchain.AddBlockToEnd(block1)
 
 	// Test successful get
 	foundBlock, err := blockchain.GetBlockByHash([]byte("hash1"))
@@ -137,14 +137,14 @@ func TestBlockchain_Getters(t *testing.T) {
 // Tests the validation of the entire blockchain's integrity
 func TestBlockchain_validateChain(t *testing.T) {
 	blockchain := &Blockchain{
-		Blocks:                []*Block{},
+		MainChain:             []*Block{},
 		BlocksMapByHash:       make(map[string]*Block),
 		BlocksMapByMerkelRoot: make(map[string]*Block),
 	}
 	block1 := &Block{Hash: []byte("hash1"), PrevHash: []byte{}}
 	block2 := &Block{Hash: []byte("hash2"), PrevHash: []byte("hash1")}
-	blockchain.AddBlock(block1)
-	blockchain.AddBlock(block2)
+	blockchain.AddBlockToEnd(block1)
+	blockchain.AddBlockToEnd(block2)
 
 	// Test a valid chain
 	if !blockchain.validateChain() {
@@ -152,7 +152,7 @@ func TestBlockchain_validateChain(t *testing.T) {
 	}
 
 	// Test an invalid chain (broken link)
-	blockchain.Blocks[1].PrevHash = []byte("tampered_prev_hash")
+	blockchain.MainChain[1].PrevHash = []byte("tampered_prev_hash")
 	if blockchain.validateChain() {
 		t.Errorf("FAIL: validateChain returned true for an invalid chain")
 	}
@@ -283,7 +283,7 @@ func TestPersistence(t *testing.T) {
 	testFile := filepath.Join(tempDir, "blockchain.json")
 
 	originalBlockchain := &Blockchain{
-		Blocks: []*Block{
+		MainChain: []*Block{
 			{Index: 0, Hash: []byte("hash0"), MerkelRoot: []byte("merkel0")},
 			{Index: 1, Hash: []byte("hash1"), MerkelRoot: []byte("merkel1")},
 		},
@@ -307,17 +307,17 @@ func TestPersistence(t *testing.T) {
 	}
 
 	// Check if the number of blocks is the same
-	if len(loadedBlockchain.Blocks) != len(originalBlockchain.Blocks) {
-		t.Fatalf("Loaded blockchain has wrong number of blocks. Got %d, want %d", len(loadedBlockchain.Blocks), len(originalBlockchain.Blocks))
+	if len(loadedBlockchain.MainChain) != len(originalBlockchain.MainChain) {
+		t.Fatalf("Loaded blockchain has wrong number of blocks. Got %d, want %d", len(loadedBlockchain.MainChain), len(originalBlockchain.MainChain))
 	}
 
 	// Check if the block data is consistent
-	if !bytes.Equal(loadedBlockchain.Blocks[1].Hash, originalBlockchain.Blocks[1].Hash) {
+	if !bytes.Equal(loadedBlockchain.MainChain[1].Hash, originalBlockchain.MainChain[1].Hash) {
 		t.Errorf("Loaded block data does not match original data")
 	}
 
 	// Check if the lookup maps were rebuilt correctly
-	_, ok := loadedBlockchain.BlocksMapByHash[hex.EncodeToString(originalBlockchain.Blocks[1].Hash)]
+	_, ok := loadedBlockchain.BlocksMapByHash[hex.EncodeToString(originalBlockchain.MainChain[1].Hash)]
 	if !ok {
 		t.Errorf("Map lookup failed in loaded blockchain, indicating maps were not rebuilt")
 	}

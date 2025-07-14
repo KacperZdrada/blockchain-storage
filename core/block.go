@@ -80,6 +80,7 @@ func (block *Block) Mine(difficulty uint, workers int, retries int) error {
 	// Calculate that target that the hash needs to be smaller than or equal to based on the difficulty
 	// This involves right shifting the max hash value by the difficulty (equivalent to leading number of zeroes)
 	target := new(big.Int).Rsh(maxHash, difficulty)
+	block.Timestamp = time.Now()
 
 	attempts := 0
 	for attempts < retries {
@@ -165,7 +166,7 @@ func proofOfWorkMiner(ctx context.Context, target *big.Int, startNonce int, nonc
 
 // Function to create a new block and return a pointer to it
 func CreateBlock(blockchain *Blockchain, merkelRoot []byte) *Block {
-	prevBlock := blockchain.Blocks[len(blockchain.Blocks)-1]
+	prevBlock := blockchain.MainChain[len(blockchain.MainChain)-1]
 	block := &Block{
 		Index:      prevBlock.Index + 1,
 		Timestamp:  time.Now(),
