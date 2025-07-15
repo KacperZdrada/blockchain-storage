@@ -15,6 +15,7 @@ type Blockchain struct {
 	BlocksMapByHash       map[string]*Block
 	BlocksMapByMerkelRoot map[string]*Block
 	OrphanPool            map[string]*Block
+	Mempool               chan *Block
 }
 
 // Function to add a new block directly to the end of the blockchain (via pointer)
@@ -97,8 +98,42 @@ func (blockchain *Blockchain) addBlockHelper(newBlock *Block) []*Block {
 }
 
 // Function that reorganises the main chain given a longer fork
-func (blockchain *Blockchain) reorganiseChain(block *Block) {
+// Function works on presumption that newTip.Index > len(blockchain.MainChain)-1
+func (blockchain *Blockchain) reorganiseChain(newTip *Block) {
+	// Get the tip of the old chain and the new longer chain
+	currentNew := newTip
+	currentOld := blockchain.MainChain[len(blockchain.MainChain)-1]
 
+	// newPath will hold the traversal of the new chain from its tip to the common ancestor with the old chain
+	var newPath []*Block
+
+	// Traverse the new chain until its height matches the old chain's height
+	for currentNew.Index > currentOld.Index {
+		newPath = append(newPath, currentNew)
+		currentNew = blockchain.BlocksMapByHash[hex.EncodeToString(currentNew.PrevHash)]
+	}
+
+	// Traverse both the old chain and the new chain until a common ancestor is reached
+	for i := currentOld.Index; !bytes.Equal(currentNew.Hash, currentOld.Hash); i-- {
+		newPath = append(newPath, currentNew)
+		currentNew = blockchain.BlocksMapByHash[hex.EncodeToString(currentNew.PrevHash)]
+		currentOld = blockchain.MainChain[i-1]
+	}
+
+	// Get the chain after the common ancestor (not inclusive) and set the main chain to be up to the common
+	// ancestor (inclusive)
+	chainAfterCommonAncestor := blockchain.MainChain[currentOld.Index+1:]
+	blockchain.MainChain = blockchain.MainChain[:currentOld.Index+1]
+
+	// Loop over the new path in reverse order and add each block to the main chain
+	for i := len(newPath) - 1; i > -1; i-- {
+		blockchain.MainChain = append(blockchain.MainChain, newPath[i])
+	}
+
+	// Add each block taken off the main chain to the mempool
+	for _, block := range chainAfterCommonAncestor {
+		blockchain.Mempool <- block
+	}
 }
 
 // Function to retrieve a pointer to the last block of the Blockchain

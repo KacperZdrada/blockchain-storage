@@ -103,13 +103,9 @@ func handleSendNewBlock(payload json.RawMessage) {
 		return
 	}
 	cmd.NodeState.Mutex.Lock()
-	// Verify that the block is valid and if so add it to the blockchain
-	if block.IsValid(cmd.NodeState.Blockchain.LastBlock(), uint(5)) {
-		cmd.NodeState.Blockchain.AddBlockToEnd(&block)
-	}
+	// Add block to blockchain (which handles verification, forks, orphans, reorganisation, etc.)
+	cmd.NodeState.Blockchain.AddBlock(&block)
 	cmd.NodeState.Mutex.Unlock()
-	// If block is not valid, simply reject it by returning
-	return
 }
 
 func handleSendChunks(payload json.RawMessage) {}
