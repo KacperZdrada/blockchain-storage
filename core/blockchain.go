@@ -5,21 +5,32 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"sync"
 )
 
-// Blockchain structure. All mutex functionality is handled outside in the cmd.State structure so any operations here
-// can be considered thread safe
+// Blockchain structure
 type Blockchain struct {
 	MainChain             []*Block `json:"blocks"`
 	BlocksMapByHash       map[string]*Block
 	BlocksMapByMerkelRoot map[string]*Block
 	OrphanPool            map[string]*Block
-	Mempool               chan *Block
+	Mempool               chan *Block // When initialised, Mempool should be a buffered channel
+	Mutex                 sync.RWMutex
+}
+
+// JSON-saveable Blockchain structure (used for writing to a file or sending over network)
+type saveableBlockchain struct {
+	MainChain       []*Block          `json:"blocks"`
+	BlocksMapByHash map[string]*Block `json:"blocksMapByHash"`
 }
 
 // Function to add a new block directly to the end of the blockchain (via pointer)
 func (blockchain *Blockchain) AddBlockToEnd(block *Block) {
+	blockchain.Mutex.Lock()
+	defer blockchain.Mutex.Unlock()
+
 	// Add the block pointer to the list
 	blockchain.MainChain = append(blockchain.MainChain, block)
 	// Add the block pointer to a hashmap between hash of blocks and block pointers
@@ -30,6 +41,9 @@ func (blockchain *Blockchain) AddBlockToEnd(block *Block) {
 
 // Function to add a new block to the blockchain (via pointer)
 func (blockchain *Blockchain) AddBlock(block *Block) {
+	blockchain.Mutex.Lock()
+	defer blockchain.Mutex.Unlock()
+
 	// Initialise a queue of blocks to process
 	blocksToProcess := []*Block{block}
 
@@ -58,6 +72,7 @@ func (blockchain *Blockchain) addBlockHelper(newBlock *Block) []*Block {
 	prevBlock, prevBlockExists := blockchain.BlocksMapByHash[hex.EncodeToString(newBlock.PrevHash)]
 	if !prevBlockExists {
 		// If the parent block does not exist, then the new block is an orphan and should be added to the orphan pool
+		// TODO: Add peer request here for parent block
 		blockchain.OrphanPool[hex.EncodeToString(newBlock.Hash)] = newBlock
 		return nil
 	}
@@ -114,7 +129,7 @@ func (blockchain *Blockchain) reorganiseChain(newTip *Block) {
 	}
 
 	// Traverse both the old chain and the new chain until a common ancestor is reached
-	for i := currentOld.Index; !bytes.Equal(currentNew.Hash, currentOld.Hash); i-- {
+	for i := int(currentOld.Index); !bytes.Equal(currentNew.Hash, currentOld.Hash); i-- {
 		newPath = append(newPath, currentNew)
 		currentNew = blockchain.BlocksMapByHash[hex.EncodeToString(currentNew.PrevHash)]
 		currentOld = blockchain.MainChain[i-1]
@@ -138,11 +153,15 @@ func (blockchain *Blockchain) reorganiseChain(newTip *Block) {
 
 // Function to retrieve a pointer to the last block of the Blockchain
 func (blockchain *Blockchain) LastBlock() *Block {
+	blockchain.Mutex.RLock()
+	defer blockchain.Mutex.RUnlock()
 	return blockchain.MainChain[len(blockchain.MainChain)-1]
 }
 
 // Function to retrieve the length of the blockchain
 func (blockchain *Blockchain) Length() int {
+	blockchain.Mutex.RLock()
+	defer blockchain.Mutex.RUnlock()
 	return len(blockchain.MainChain)
 }
 
@@ -166,6 +185,9 @@ func (blockchain *Blockchain) GetBlockByMerkelRoot(merkelRoot []byte) (*Block, e
 
 // Function to validate the entire blockchain (works with blockchains length >= 1)
 func (blockchain *Blockchain) validateChain() bool {
+	blockchain.Mutex.RLock()
+	defer blockchain.Mutex.RUnlock()
+
 	for i := 1; i < len(blockchain.MainChain); i++ {
 		if !bytes.Equal(blockchain.MainChain[i].PrevHash, blockchain.MainChain[i-1].Hash) {
 			return false
@@ -174,11 +196,40 @@ func (blockchain *Blockchain) validateChain() bool {
 	return true
 }
 
+// Function designed to run as goroutine that listens for any blocks added to the mempool and immediately mines them
+// It takes in as a parameter the mutex for the node state (which holds and locks the blockchain structure)
+func (blockchain *Blockchain) mempoolHandler() {
+	for block := range blockchain.Mempool {
+
+		// Set the prevhash of the block and index according to the last block on the blockchain
+		blockchain.Mutex.RLock()
+		block.PrevHash = blockchain.MainChain[len(blockchain.MainChain)-1].Hash
+		block.Index = blockchain.MainChain[len(blockchain.MainChain)-1].Index + 1
+		blockchain.Mutex.RUnlock()
+
+		// Mine the block
+		err := block.Mine(uint(5), 4, 3)
+		if err != nil {
+			fmt.Printf("error when attempting to mine block: %s", err)
+		}
+
+		// Add the block to the chain (which will also handle any issues if the blockchain has been updated during
+		// mining)
+		blockchain.AddBlock(block)
+	}
+}
+
 // Function to write the entire blockchain to a file for persistence
 func (blockchain *Blockchain) WriteToFile(filepath string) error {
+	blockchain.Mutex.RLock()
+	defer blockchain.Mutex.RUnlock()
+
 	// Convert blockchain (list of blocks only) to JSON
 	// The maps are not saved as this is simply duplicating data
-	jsonBlockchain, err := json.MarshalIndent(blockchain.MainChain, "", "  ")
+	jsonBlockchain, err := json.MarshalIndent(
+		saveableBlockchain{MainChain: blockchain.MainChain, BlocksMapByHash: blockchain.BlocksMapByHash},
+		"",
+		"  ")
 	if err != nil {
 		return err
 	}
@@ -195,22 +246,24 @@ func BlockchainFromFile(filepath string) (*Blockchain, error) {
 	}
 
 	// Convert the json byte data into structs
-	var blocks []*Block
-	err = json.Unmarshal(jsonBlockchain, &blocks)
+	var savedBlockchain saveableBlockchain
+	err = json.Unmarshal(jsonBlockchain, &savedBlockchain)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create blockchain structure
 	blockchain := &Blockchain{
-		MainChain:             blocks,
-		BlocksMapByHash:       make(map[string]*Block),
+		MainChain:             savedBlockchain.MainChain,
+		BlocksMapByHash:       savedBlockchain.BlocksMapByHash,
 		BlocksMapByMerkelRoot: make(map[string]*Block),
+		OrphanPool:            make(map[string]*Block),
+		Mempool:               make(chan *Block, 100),
+		Mutex:                 sync.RWMutex{},
 	}
 
 	// Create the mappings that were not saved
-	for _, block := range blocks {
-		blockchain.BlocksMapByHash[hex.EncodeToString(block.Hash)] = block
+	for _, block := range blockchain.BlocksMapByHash {
 		blockchain.BlocksMapByMerkelRoot[hex.EncodeToString(block.MerkelRoot)] = block
 	}
 

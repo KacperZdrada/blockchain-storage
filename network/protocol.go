@@ -102,10 +102,8 @@ func handleSendNewBlock(payload json.RawMessage) {
 		fmt.Printf("error encountered when unmarshalling payload: %s", err)
 		return
 	}
-	cmd.NodeState.Mutex.Lock()
 	// Add block to blockchain (which handles verification, forks, orphans, reorganisation, etc.)
 	cmd.NodeState.Blockchain.AddBlock(&block)
-	cmd.NodeState.Mutex.Unlock()
 }
 
 func handleSendChunks(payload json.RawMessage) {}

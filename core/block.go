@@ -166,7 +166,9 @@ func proofOfWorkMiner(ctx context.Context, target *big.Int, startNonce int, nonc
 
 // Function to create a new block and return a pointer to it
 func CreateBlock(blockchain *Blockchain, merkelRoot []byte) *Block {
+	blockchain.Mutex.RLock()
 	prevBlock := blockchain.MainChain[len(blockchain.MainChain)-1]
+	blockchain.Mutex.RUnlock()
 	block := &Block{
 		Index:      prevBlock.Index + 1,
 		Timestamp:  time.Now(),
