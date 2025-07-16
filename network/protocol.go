@@ -18,8 +18,8 @@ type MessageType string
 
 // Define the various constants that the message type type can be (i.e. all the different message types)
 const (
-	SendNewBlock          MessageType = "NewBlock"
-	SendChunks            MessageType = "SendChunks"
+	SaveNewBlock          MessageType = "SaveBlock"
+	SaveFile              MessageType = "SaveFile"
 	RequestChunks         MessageType = "RequestChunks"
 	RequestChunksResponse MessageType = "RequestChunksResponse"
 	RequestBlocks         MessageType = "RequestBlocks"
@@ -46,13 +46,20 @@ type RequestBlocksPayload struct {
 	BlockIndices []int `json:"blockIndices"`
 }
 
-// RESPONSE TO REQUEST PAYLOADS
+// SaveFile defines the structure of a message that requests to save a file on the node
+type SaveFilePayload struct {
+	Chunks     [][]byte        `json:"chunks"`
+	MerkleTree core.MerkleTree `json:"merkleTree"`
+}
+
+// RESPONSE TO REQUEST PAYLOAD DEFINTIONS
 
 // RequestChunksResponsePayload defines the structure of a response to a chunks request
 // MerkleProofs[i] holds the merkle proof for Chunks[i]
 type RequestChunksResponsePayload struct {
-	Chunks       [][]byte           `json:"chunks"`       // List of all requested chunks
-	MerkleProofs []core.MerkleProof `json:"merkleProofs"` // List of proofs for each chunk
+	Chunks        [][]byte           `json:"chunks"`       // List of all requested chunks
+	ChunksIndices []int              `json:"chunkIndices"` // List of all successfully returned chunks
+	MerkleProofs  []core.MerkleProof `json:"merkleProofs"` // List of proofs for each chunk
 }
 
 // RequestBlocksResponsePayload defines the structure of a response to a blocks request

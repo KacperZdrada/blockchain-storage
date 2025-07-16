@@ -4,10 +4,13 @@ import (
 	"blockchain-storage/cmd"
 	"blockchain-storage/core"
 	"bufio"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/libp2p/go-libp2p/core/network"
 	"io"
+	"os"
+	"strconv"
 )
 
 // Function that the host uses to handle a stream
@@ -46,12 +49,12 @@ func determineHandler(rw *bufio.ReadWriter) {
 
 		// Determine the message type and call the appropriate handler
 		switch message.Type {
-		case SendNewBlock:
-			handleSendNewBlock(message.Payload)
-		case SendChunks:
-			handleSendChunks(message.Payload)
+		case SaveNewBlock:
+			handleSaveNewBlock(message.Payload)
+		case SaveFile:
+			handleSaveFile(message.Payload)
 		case RequestChunks:
-			handleRequestChunks(message.Payload)
+			handleRequestChunks(message.Payload, rw)
 		case RequestBlocks:
 			handleRequestBlocks(message.Payload, rw)
 		case RequestBlockchain:
@@ -65,7 +68,7 @@ func determineHandler(rw *bufio.ReadWriter) {
 // Handler for when a node receives a new blockchain block
 // Payload structure:
 // { Block }
-func handleSendNewBlock(payload json.RawMessage) {
+func handleSaveNewBlock(payload json.RawMessage) {
 	// Initialise the block variable and unmarshall the json into it
 	var block core.Block
 	if err := json.Unmarshal(payload, &block); err != nil {
@@ -77,10 +80,47 @@ func handleSendNewBlock(payload json.RawMessage) {
 	cmd.NodeState.Blockchain.AddBlock(&block)
 }
 
-func handleSendChunks(payload json.RawMessage) {}
+// Handler for when a node receives a new file to store
+func handleSaveFile(payload json.RawMessage) {
+	// Unmarshall the payload
+	var messagePayload SaveFilePayload
+	if err := json.Unmarshal(payload, &messagePayload); err != nil {
+		fmt.Printf("error encountered when unmarshalling payload: %s", err)
+		return
+	}
+
+	// Create a new directory with the name of the merkle root of the file to be stored
+	folderName := hex.EncodeToString(messagePayload.MerkleTree.Root.Hash)
+	err := os.Mkdir(folderName, 0644)
+	if err != nil {
+		fmt.Printf("error encountered when creating directory: %s", err)
+		return
+	}
+
+	// Write all chunks to separate files with their index as the filename
+	for index, chunk := range messagePayload.Chunks {
+		err = os.WriteFile(folderName+"/"+strconv.Itoa(index), chunk, 0644)
+		if err != nil {
+			fmt.Printf("error encountered when writing chunk %d to file: %s", index, err)
+		}
+	}
+
+	// Convert merkle tree to json and write to file
+	merkleTreeJSON, err := json.Marshal(messagePayload.MerkleTree)
+	if err != nil {
+		fmt.Printf("error encountered when marshalling merkle tree: %s", err)
+		return
+	}
+
+	err = os.WriteFile(folderName+"/merkletree.json", merkleTreeJSON, 0644)
+	if err != nil {
+		fmt.Printf("error encountered when writing merkle tree: %s", err)
+		return
+	}
+}
 
 // Handler for when a node receives a request for certain chunks held on the node
-func handleRequestChunks(payload json.RawMessage) {
+func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 	// Initialise the payload variable and unmarshall the json into it
 	var messagePayload RequestChunksPayload
 	if err := json.Unmarshal(payload, &messagePayload); err != nil {
@@ -89,19 +129,48 @@ func handleRequestChunks(payload json.RawMessage) {
 		return
 	}
 
-	// TODO: Read in each chunk and merkle tree from storage
 	var chunks [][]byte
+	var chunksIndices []int
 	var merkleTree core.MerkleTree
 	var proofs []core.MerkleProof
+	folderName := messagePayload.MerkleRoot + "/"
+
+	// Read in each requested chunk into memory
+	for _, index := range messagePayload.ChunkIndices {
+		chunk, err := os.ReadFile(folderName + strconv.Itoa(index))
+		if err != nil {
+			fmt.Printf("error encountered when reading chunk %d: %s", index, err)
+			// Do not return as can still send any chunks that do not error
+		} else {
+			chunks = append(chunks, chunk)
+			// Save the index if successful too to show which chunks have successfully been returned
+			chunksIndices = append(chunksIndices, index)
+		}
+	}
+
+	// Read in the merkle tree
+	merkleTreeBytes, err := os.ReadFile(folderName + "merkletree.json")
+	if err != nil {
+		fmt.Printf("error encountered when writing merkle tree: %s", err)
+	}
 
 	// For each chunk, generate its merkle proof and add it to the list
+	err = json.Unmarshal(merkleTreeBytes, &merkleTree)
 	for _, index := range messagePayload.ChunkIndices {
 		proofs = append(proofs, merkleTree.GenerateMerkleProof(index))
 	}
 
-	response := RequestChunksResponse{Chunks: chunks, MerkleProofs: proofs}
+	// Marshall the payload response into JSON
+	jsonPayload, err := json.Marshal(RequestChunksResponsePayload{Chunks: chunks, ChunksIndices: chunksIndices, MerkleProofs: proofs})
+	if err != nil {
+		fmt.Printf("error encountered when marshalling payload: %s", err)
+	}
 
-	// TODO: Call response handler
+	// Send the response to the requester
+	err = sendResponse(RequestChunksResponse, jsonPayload, rw)
+	if err != nil {
+		fmt.Printf("error encountered when sending response: %s", err)
+	}
 }
 
 func handleRequestBlockchain(payload json.RawMessage) {}
@@ -127,6 +196,21 @@ func handleRequestBlocks(payload json.RawMessage, rw *bufio.ReadWriter) {
 	if err != nil {
 		fmt.Printf("error encountered when sending response payload: %s", err)
 		return
+	}
+}
+
+// Function to handle response to requested blocks
+func handleRequestBlocksResponse(message json.RawMessage) {
+	// Unmarshall the received blocks
+	var messagePayload RequestBlocksResponsePayload
+	if err := json.Unmarshal(message, &messagePayload); err != nil {
+		fmt.Printf("error encountered when unmarshalling payload: %s", err)
+		return
+	}
+
+	// Add each block to the blockchain
+	for _, block := range messagePayload.Blocks {
+		cmd.NodeState.Blockchain.AddBlock(block)
 	}
 }
 
