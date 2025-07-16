@@ -129,7 +129,7 @@ func (blockchain *Blockchain) reorganiseChain(newTip *Block) {
 	}
 
 	// Traverse both the old chain and the new chain until a common ancestor is reached
-	for i := int(currentOld.Index); !bytes.Equal(currentNew.Hash, currentOld.Hash); i-- {
+	for i := currentOld.Index; !bytes.Equal(currentNew.Hash, currentOld.Hash); i-- {
 		newPath = append(newPath, currentNew)
 		currentNew = blockchain.BlocksMapByHash[hex.EncodeToString(currentNew.PrevHash)]
 		currentOld = blockchain.MainChain[i-1]
@@ -167,6 +167,8 @@ func (blockchain *Blockchain) Length() int {
 
 // Function to retrieve a pointer to a block according to its hash
 func (blockchain *Blockchain) GetBlockByHash(hash []byte) (*Block, error) {
+	blockchain.Mutex.RLock()
+	defer blockchain.Mutex.RUnlock()
 	block, found := blockchain.BlocksMapByHash[hex.EncodeToString(hash)]
 	if !found {
 		return nil, errors.New("no block with matching hash in the blockchain")
@@ -176,11 +178,29 @@ func (blockchain *Blockchain) GetBlockByHash(hash []byte) (*Block, error) {
 
 // Function to retrieve a pointer to a block according to the merkel root
 func (blockchain *Blockchain) GetBlockByMerkelRoot(merkelRoot []byte) (*Block, error) {
+	blockchain.Mutex.RLock()
+	defer blockchain.Mutex.RUnlock()
 	block, found := blockchain.BlocksMapByMerkelRoot[hex.EncodeToString(merkelRoot)]
 	if !found {
 		return nil, errors.New("no block with matching merkel root in the blockchain")
 	}
 	return block, nil
+}
+
+// Function to retrieve pointers to blocks according to indices
+func (blockchain *Blockchain) GetBlocksByIndices(indices []int) []*Block {
+	blockchain.Mutex.RLock()
+	defer blockchain.Mutex.RUnlock()
+	var blocks []*Block
+	maxIndex := blockchain.Length() - 1
+	for _, index := range indices {
+		// Only retrieve blocks if index is valid (as this function is used to request parents to orphan blocks
+		// that a peer might not have)
+		if index < maxIndex {
+			blocks = append(blocks, blockchain.MainChain[index])
+		}
+	}
+	return blocks
 }
 
 // Function to validate the entire blockchain (works with blockchains length >= 1)

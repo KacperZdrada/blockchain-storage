@@ -7,7 +7,6 @@ import (
 	"errors"
 	"math"
 	"math/big"
-	"strconv"
 	"time"
 )
 
@@ -23,7 +22,7 @@ func init() {
 // Structure of a single block in the blockchain
 
 type Block struct {
-	Index      int64     `json:"index"`      // Index of the block
+	Index      int       `json:"index"`      // Index of the block
 	Timestamp  time.Time `json:"timestamp"`  // Timestamp when the block was created
 	MerkelRoot []byte    `json:"merkelRoot"` // Merkel root hash of the file associated with the block
 	PrevHash   []byte    `json:"prevHash"`   // Hash of the previous block in the blockchain
@@ -34,7 +33,7 @@ type Block struct {
 // Function to calculate the hash of a block
 func (block *Block) calculateHash() []byte {
 	// Convert index, timestamp, and nonce fields to a string, append together and join to contents
-	contents := []byte(strconv.FormatInt(block.Index, 10) + block.Timestamp.String() + string(rune(block.Nonce)))
+	contents := []byte(string(rune(block.Index)) + block.Timestamp.String() + string(rune(block.Nonce)))
 	// Add the other []byte arrays
 	contents = append(contents, block.MerkelRoot...)
 	contents = append(contents, block.PrevHash...)
