@@ -3,6 +3,9 @@ package cmd
 import (
 	"blockchain-storage/core"
 	"blockchain-storage/network"
+	"context"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/spf13/cobra"
 	"sync"
 )
@@ -12,6 +15,8 @@ type State struct {
 	Mutex            *sync.Mutex
 	Blockchain       *core.Blockchain                           // Active blockchain
 	ChunksDownloader chan *network.RequestChunksResponsePayload // Channel used to communicate between RequestChunksResponseHandler and main thread
+	Host             host.Host
+	DHT              *dht.IpfsDHT
 }
 
 // Global variable holding a pointer to the state
@@ -24,6 +29,8 @@ var startCmd = &cobra.Command{
 			the blockchain from storage into memory.`,
 	Args: cobra.MaximumNArgs(1), // There is a maximum of one argument which is the address of a bootstrap peer
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Context created for many of the network calls
+		ctx := context.Background()
 		// TODO: Run this as a background task
 		// Load the blockchain into memory
 		blockchain, err := core.BlockchainFromFile("../storage/blockchain.json")
@@ -37,11 +44,19 @@ var startCmd = &cobra.Command{
 		// Run the start node function that connects to the P2P network
 		// If no command line bootstrap address is passed, the node will be the first node on the server
 		if len(args) == 0 {
-			go network.StartNode(12345, "")
+			NodeState.Host, NodeState.DHT, err = network.StartNode(ctx, 12345, "")
+			if err != nil {
+				return err
+			}
 		} else {
 			// Otherwise connect to the bootstrap peer
-			go network.StartNode(12345, args[0])
+			NodeState.Host, NodeState.DHT, err = network.StartNode(ctx, 12345, args[0])
+			if err != nil {
+				return err
+			}
 		}
+
+		// TODO: Run something blocking until task is killed
 
 		// TODO: Request latest version of blockchain from peers
 

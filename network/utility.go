@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -12,26 +13,22 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	"github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/multiformats/go-multiaddr"
-	"sync"
+	"github.com/multiformats/go-multihash"
+	"math/rand"
+	"time"
 )
 
-var Peers []*peer.AddrInfo
-var PeersMutex = &sync.Mutex{}
-
-func StartNode(port int, bootstrapAddr string) error {
-	// Context created for many of the network calls
-	ctx := context.Background()
-
+func StartNode(ctx context.Context, port int, bootstrapAddr string) (host.Host, *dht.IpfsDHT, error) {
 	// Generate a key pair for the node's identity
 	priv, _, err := crypto.GenerateKeyPair(crypto.RSA, 2048)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Create a libp2p node
 	host, err := libp2p.New(libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port)), libp2p.Identity(priv))
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	host.SetStreamHandler(protocol, handleStream)
@@ -48,13 +45,13 @@ func StartNode(port int, bootstrapAddr string) error {
 		// Convert the address string into an address object
 		addr, err := multiaddr.NewMultiaddr(bootstrapAddr)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 
 		// Get peer ID and address
 		peerInfo, err := peer.AddrInfoFromP2pAddr(addr)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 
 		// Add the peer info to list of bootstrap peers
@@ -65,7 +62,7 @@ func StartNode(port int, bootstrapAddr string) error {
 	if len(bootstrapPeers) > 0 {
 		err := connectToBootstrapPeers(ctx, host, bootstrapPeers)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 
@@ -76,11 +73,12 @@ func StartNode(port int, bootstrapAddr string) error {
 	// Advertise that the newly created node is accepting requests on the provided protocol
 	util.Advertise(ctx, routingDiscovery, protocol)
 
+	// TODO: Advertise any saved files
+
 	// Attempt to discover other peers
 	go discoverPeers(ctx, host, routingDiscovery)
 
-	// Temporarily block forever with a select statement (will be removed)
-	select {}
+	return host, localDHT, nil
 }
 
 // Function used to connect to a number of bootstrap peers
@@ -123,10 +121,6 @@ func connectToBootstrapPeer(ctx context.Context, host host.Host, peerAddr *peer.
 		// If connection errored, report this back to handler function
 		success <- false
 	} else {
-		PeersMutex.Lock()
-		// Connection successful so add peer to list of peers
-		Peers = append(Peers, peerAddr)
-		PeersMutex.Unlock()
 		success <- true
 	}
 }
@@ -150,11 +144,71 @@ func discoverPeers(ctx context.Context, host host.Host, routingDiscovery *routin
 		err := host.Connect(ctx, peer)
 		if err != nil {
 			fmt.Printf("Failed to connect to peer %s for reason %s", peer.ID, err)
-		} else {
-			// If connection successful add it to the list of peers
-			PeersMutex.Lock()
-			Peers = append(Peers, &peer)
-			PeersMutex.Unlock()
 		}
 	}
+}
+
+// ProvideContent is a function used to advertise to the P2P network that the host holds a certain file
+func ProvideContent(ctx context.Context, DHT *dht.IpfsDHT, merkleRoot []byte) (cid.Cid, error) {
+	// Create the content ID from the merkleRoot of the file being stored
+	hash, err := multihash.Sum(merkleRoot, multihash.SHA2_256, -1)
+	if err != nil {
+		return cid.Undef, err
+	}
+	contentCid := cid.NewCidV1(cid.Raw, hash)
+
+	// Advertise it to the network
+	routingDiscovery := routing.NewRoutingDiscovery(DHT)
+	util.Advertise(ctx, routingDiscovery, contentCid.String())
+
+	return contentCid, nil
+}
+
+// FindProviders will find any nodes that are able to provide the file based on the contentID
+func FindProviders(ctx context.Context, host host.Host, DHT *dht.IpfsDHT, contentCid cid.Cid) ([]peer.AddrInfo, error) {
+	// Create a channel on which found providers will be sent
+	peers := DHT.FindProvidersAsync(ctx, contentCid, 5)
+	var providers []peer.AddrInfo
+
+	// Wait on providers and add to the list once found
+	for peer := range peers {
+		if peer.ID == host.ID() {
+			continue
+		}
+		providers = append(providers, peer)
+	}
+	if len(providers) == 0 {
+		return nil, errors.New("could not find any providers")
+	}
+	return providers, nil
+}
+
+// SelectRandomPeers randomly selects the replication factor number of nodes from all connected nodes
+func SelectRandomPeers(allPeers []peer.ID, number int) ([]peer.ID, error) {
+	connected := len(allPeers)
+	// Do some error checking with regards to peers connected and the replication factor
+	if connected == 0 {
+		return nil, errors.New("no peers to select")
+	}
+	if connected < number {
+		fmt.Printf("not enough peers to achieve replication factor: %d connected peers, %d replication factor. Replicating to the %d peers only.", connected, number, connected)
+		number = len(allPeers)
+	}
+
+	var selectedPeers []peer.ID
+	selectedIndex := make(map[int]bool)
+	randomGenerator := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// Generate a random index and check if it has not already been generated before selecting a peer
+	for len(selectedPeers) < number {
+		index := randomGenerator.Intn(connected)
+		if selectedIndex[index] {
+			continue
+		} else {
+			selectedIndex[index] = true
+			selectedPeers = append(selectedPeers, allPeers[index])
+		}
+	}
+
+	return selectedPeers, nil
 }
