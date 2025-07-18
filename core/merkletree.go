@@ -44,11 +44,11 @@ func newLeafMerkleNode(fileChunk []byte) *MerkleNode {
 }
 
 // Function that creates a new merkle tree given an array of file chunks
-func NewMerkleTree(fileChunks [][]byte) *MerkleTree {
+func NewMerkleTree(fileChunks []Chunk) *MerkleTree {
 	// For every file chunk, create a leaf merkle node
 	var leafNodes []*MerkleNode
 	for _, chunk := range fileChunks {
-		leafNodes = append(leafNodes, newLeafMerkleNode(chunk))
+		leafNodes = append(leafNodes, newLeafMerkleNode(chunk.Data))
 	}
 
 	// The tree will now be built bottom-up

@@ -55,8 +55,12 @@ func determineHandler(rw *bufio.ReadWriter) {
 			handleSaveFile(message.Payload)
 		case RequestChunks:
 			handleRequestChunks(message.Payload, rw)
+		case RequestChunksResponse:
+			handleRequestChunksResponse(message.Payload)
 		case RequestBlocks:
 			handleRequestBlocks(message.Payload, rw)
+		case RequestBlocksResponse:
+			handleRequestBlocksResponse(message.Payload)
 		case RequestBlockchain:
 			handleRequestBlockchain(message.Payload)
 		default:
@@ -98,10 +102,10 @@ func handleSaveFile(payload json.RawMessage) {
 	}
 
 	// Write all chunks to separate files with their index as the filename
-	for index, chunk := range messagePayload.Chunks {
-		err = os.WriteFile(folderName+"/"+strconv.Itoa(index), chunk, 0644)
+	for _, chunk := range messagePayload.Chunks {
+		err = os.WriteFile(folderName+"/"+strconv.Itoa(chunk.Index), chunk.Data, 0644)
 		if err != nil {
-			fmt.Printf("error encountered when writing chunk %d to file: %s", index, err)
+			fmt.Printf("error encountered when writing chunk %d to file: %s", chunk.Index, err)
 		}
 	}
 
@@ -129,7 +133,7 @@ func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 		return
 	}
 
-	var chunks [][]byte
+	var chunks []core.Chunk
 	var chunksIndices []int
 	var merkleTree core.MerkleTree
 	var proofs []core.MerkleProof
@@ -142,7 +146,7 @@ func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 			fmt.Printf("error encountered when reading chunk %d: %s", index, err)
 			// Do not return as can still send any chunks that do not error
 		} else {
-			chunks = append(chunks, chunk)
+			chunks = append(chunks, core.Chunk{Index: index, Data: chunk})
 			// Save the index if successful too to show which chunks have successfully been returned
 			chunksIndices = append(chunksIndices, index)
 		}
@@ -161,7 +165,7 @@ func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 	}
 
 	// Marshall the payload response into JSON
-	jsonPayload, err := json.Marshal(RequestChunksResponsePayload{Chunks: chunks, ChunksIndices: chunksIndices, MerkleProofs: proofs})
+	jsonPayload, err := json.Marshal(RequestChunksResponsePayload{Chunks: chunks, MerkleProofs: proofs})
 	if err != nil {
 		fmt.Printf("error encountered when marshalling payload: %s", err)
 	}
@@ -171,6 +175,18 @@ func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 	if err != nil {
 		fmt.Printf("error encountered when sending response: %s", err)
 	}
+}
+
+// Function to handle the response of a chunks request
+func handleRequestChunksResponse(payload json.RawMessage) {
+	var messagePayload RequestChunksResponsePayload
+	if err := json.Unmarshal(payload, &messagePayload); err != nil {
+		fmt.Printf("error encountered when unmarshalling payload: %s", err)
+		return
+	}
+
+	// Send the response to the main handler that has been requesting chunks
+	cmd.NodeState.ChunksDownloader <- &messagePayload
 }
 
 func handleRequestBlockchain(payload json.RawMessage) {}

@@ -48,7 +48,7 @@ type RequestBlocksPayload struct {
 
 // SaveFile defines the structure of a message that requests to save a file on the node
 type SaveFilePayload struct {
-	Chunks     [][]byte        `json:"chunks"`
+	Chunks     []core.Chunk    `json:"chunks"`
 	MerkleTree core.MerkleTree `json:"merkleTree"`
 }
 
@@ -57,9 +57,8 @@ type SaveFilePayload struct {
 // RequestChunksResponsePayload defines the structure of a response to a chunks request
 // MerkleProofs[i] holds the merkle proof for Chunks[i]
 type RequestChunksResponsePayload struct {
-	Chunks        [][]byte           `json:"chunks"`       // List of all requested chunks
-	ChunksIndices []int              `json:"chunkIndices"` // List of all successfully returned chunks
-	MerkleProofs  []core.MerkleProof `json:"merkleProofs"` // List of proofs for each chunk
+	Chunks       []core.Chunk       `json:"chunks"`       // List of all requested chunks
+	MerkleProofs []core.MerkleProof `json:"merkleProofs"` // List of proofs for each chunk
 }
 
 // RequestBlocksResponsePayload defines the structure of a response to a blocks request
