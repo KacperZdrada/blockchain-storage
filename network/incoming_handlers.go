@@ -4,6 +4,7 @@ import (
 	"blockchain-storage/cmd"
 	"blockchain-storage/core"
 	"bufio"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,13 +15,13 @@ import (
 )
 
 // Function that the host uses to handle a stream
-func handleStream(stream network.Stream) {
+func handleStream(ctx context.Context, stream network.Stream) {
 	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
 	// Handle the actual stream in a go routine to allow handleStream to return and be used for the next incoming stream
-	go determineHandler(rw)
+	go determineHandler(ctx, rw)
 }
 
-func determineHandler(rw *bufio.ReadWriter) {
+func determineHandler(ctx context.Context, rw *bufio.ReadWriter) {
 	for {
 		// Read a full message (which is all the way up to the \n delimeter)
 		str, err := rw.ReadString('\n')
@@ -52,15 +53,11 @@ func determineHandler(rw *bufio.ReadWriter) {
 		case SaveNewBlock:
 			handleSaveNewBlock(message.Payload)
 		case SaveFile:
-			handleSaveFile(message.Payload)
+			handleSaveFile(ctx, message.Payload)
 		case RequestChunks:
 			handleRequestChunks(message.Payload, rw)
-		case RequestChunksResponse:
-			handleRequestChunksResponse(message.Payload)
 		case RequestBlocks:
 			handleRequestBlocks(message.Payload, rw)
-		case RequestBlocksResponse:
-			handleRequestBlocksResponse(message.Payload)
 		case RequestBlockchain:
 			handleRequestBlockchain(message.Payload)
 		default:
@@ -85,7 +82,7 @@ func handleSaveNewBlock(payload json.RawMessage) {
 }
 
 // Handler for when a node receives a new file to store
-func handleSaveFile(payload json.RawMessage) {
+func handleSaveFile(ctx context.Context, payload json.RawMessage) {
 	// Unmarshall the payload
 	var messagePayload SaveFilePayload
 	if err := json.Unmarshal(payload, &messagePayload); err != nil {
@@ -121,6 +118,15 @@ func handleSaveFile(payload json.RawMessage) {
 		fmt.Printf("error encountered when writing merkle tree: %s", err)
 		return
 	}
+
+	// Announce to the P2P network that the node is providing the file
+	_, err = ProvideContent(ctx, cmd.NodeState.DHT, messagePayload.MerkleTree.Root.Hash)
+	if err != nil {
+		fmt.Printf("error encountered when announcing providing content: %s", err)
+		return
+	}
+
+	// TODO: Save contentID to file for persistence
 }
 
 // Handler for when a node receives a request for certain chunks held on the node
@@ -171,22 +177,10 @@ func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 	}
 
 	// Send the response to the requester
-	err = sendResponse(RequestChunksResponse, jsonPayload, rw)
+	err = sendMessageDownStream(RequestChunksResponse, jsonPayload, rw)
 	if err != nil {
 		fmt.Printf("error encountered when sending response: %s", err)
 	}
-}
-
-// Function to handle the response of a chunks request
-func handleRequestChunksResponse(payload json.RawMessage) {
-	var messagePayload RequestChunksResponsePayload
-	if err := json.Unmarshal(payload, &messagePayload); err != nil {
-		fmt.Printf("error encountered when unmarshalling payload: %s", err)
-		return
-	}
-
-	// Send the response to the main handler that has been requesting chunks
-	cmd.NodeState.ChunksDownloader <- &messagePayload
 }
 
 func handleRequestBlockchain(payload json.RawMessage) {}
@@ -208,7 +202,7 @@ func handleRequestBlocks(payload json.RawMessage, rw *bufio.ReadWriter) {
 	}
 
 	// Send the response to the requester
-	err = sendResponse(RequestBlocksResponse, jsonPayload, rw)
+	err = sendMessageDownStream(RequestBlocksResponse, jsonPayload, rw)
 	if err != nil {
 		fmt.Printf("error encountered when sending response payload: %s", err)
 		return
@@ -228,26 +222,4 @@ func handleRequestBlocksResponse(message json.RawMessage) {
 	for _, block := range messagePayload.Blocks {
 		cmd.NodeState.Blockchain.AddBlock(block)
 	}
-}
-
-// Function used to send responses to incoming requests
-func sendResponse(messageType MessageType, payload []byte, rw *bufio.ReadWriter) error {
-	// First encode the message into json
-	jsonResponse, err := json.Marshal(Message{Type: messageType, Payload: payload})
-	if err != nil {
-		return err
-	}
-
-	// Convert the response, add the message delimiter, and write it to the buffer
-	_, err = rw.WriteString(string(jsonResponse) + "\n")
-	if err != nil {
-		return err
-	}
-
-	// Send all contents in the buffer down the stream
-	err = rw.Flush()
-	if err != nil {
-		return err
-	}
-	return nil
 }

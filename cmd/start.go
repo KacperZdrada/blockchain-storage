@@ -12,11 +12,10 @@ import (
 
 // Structure for holding the current nodes state
 type State struct {
-	Mutex            *sync.Mutex
-	Blockchain       *core.Blockchain                           // Active blockchain
-	ChunksDownloader chan *network.RequestChunksResponsePayload // Channel used to communicate between RequestChunksResponseHandler and main thread
-	Host             host.Host
-	DHT              *dht.IpfsDHT
+	Mutex      *sync.Mutex
+	Blockchain *core.Blockchain // Active blockchain
+	Host       host.Host
+	DHT        *dht.IpfsDHT
 }
 
 // Global variable holding a pointer to the state

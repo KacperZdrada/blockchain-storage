@@ -1,7 +1,9 @@
 package network
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/ipfs/go-cid"
@@ -9,6 +11,7 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	"github.com/libp2p/go-libp2p/p2p/discovery/util"
@@ -31,7 +34,7 @@ func StartNode(ctx context.Context, port int, bootstrapAddr string) (host.Host, 
 		return nil, nil, err
 	}
 
-	host.SetStreamHandler(protocol, handleStream)
+	host.SetStreamHandler(protocol, func(stream network.Stream) { handleStream(ctx, stream) })
 
 	// Create a local distributed hash table for peer discovery
 	// Its mode is set to server so that it can respond to query requests
@@ -211,4 +214,67 @@ func SelectRandomPeers(allPeers []peer.ID, number int) ([]peer.ID, error) {
 	}
 
 	return selectedPeers, nil
+}
+
+// SendMessage sends a message to a specified peer
+func SendMessage(ctx context.Context, host host.Host, peerID peer.ID, requestType MessageType, payload []byte) (Message, error) {
+	// Create a stream context that times out after a minute to prevent infinite waiting on peer node
+	streamCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	// Open a new stream to the peer on the blockchain-storage protocol
+	stream, err := host.NewStream(streamCtx, peerID, protocol)
+	if err != nil {
+		fmt.Printf("error encountered when opening stream: %s", err)
+		return Message{}, err
+	}
+	defer stream.Close()
+
+	// Create a new buffer for the stream
+	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
+
+	// Send the message down the stream
+	err = sendMessageDownStream(requestType, payload, rw)
+	if err != nil {
+		fmt.Printf("error encountered when sending message down stream: %s", err)
+		return Message{}, err
+	}
+
+	// Wait for a response from the stream
+	responseString, err := rw.ReadString('\n')
+	if err != nil {
+		fmt.Printf("error encountered when reading response string: %s", err)
+		return Message{}, err
+	}
+
+	// Unmarshall the response to the Message type and return it
+	var responseMessage Message
+	err = json.Unmarshal([]byte(responseString), &responseMessage)
+	if err != nil {
+		fmt.Printf("error encountered when unmarshalling response: %s", err)
+		return Message{}, err
+	}
+	return responseMessage, nil
+}
+
+// Helper function used to send messages down a stream via a buffer
+func sendMessageDownStream(messageType MessageType, payload []byte, rw *bufio.ReadWriter) error {
+	// First encode the message into json
+	jsonResponse, err := json.Marshal(Message{Type: messageType, Payload: payload})
+	if err != nil {
+		return err
+	}
+
+	// Convert the response, add the message delimiter, and write it to the buffer
+	_, err = rw.WriteString(string(jsonResponse) + "\n")
+	if err != nil {
+		return err
+	}
+
+	// Send all contents in the buffer down the stream
+	err = rw.Flush()
+	if err != nil {
+		return err
+	}
+	return nil
 }
