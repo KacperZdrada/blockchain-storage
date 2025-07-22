@@ -53,7 +53,7 @@ func determineHandler(ctx context.Context, rw *bufio.ReadWriter) {
 		case SaveNewBlock:
 			handleSaveNewBlock(message.Payload)
 		case SaveFile:
-			handleSaveFile(ctx, message.Payload)
+			handleSaveFile(ctx, message.Payload, rw)
 		case RequestChunks:
 			handleRequestChunks(message.Payload, rw)
 		case RequestBlocks:
@@ -82,7 +82,7 @@ func handleSaveNewBlock(payload json.RawMessage) {
 }
 
 // Handler for when a node receives a new file to store
-func handleSaveFile(ctx context.Context, payload json.RawMessage) {
+func handleSaveFile(ctx context.Context, payload json.RawMessage, rw *bufio.ReadWriter) {
 	// Unmarshall the payload
 	var messagePayload SaveFilePayload
 	if err := json.Unmarshal(payload, &messagePayload); err != nil {
@@ -94,6 +94,7 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage) {
 	folderName := hex.EncodeToString(messagePayload.MerkleTree.Root.Hash)
 	err := os.Mkdir(folderName, 0644)
 	if err != nil {
+		sendSaveFileStatusResponse(rw, false)
 		fmt.Printf("error encountered when creating directory: %s", err)
 		return
 	}
@@ -102,19 +103,23 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage) {
 	for _, chunk := range messagePayload.Chunks {
 		err = os.WriteFile(folderName+"/"+strconv.Itoa(chunk.Index), chunk.Data, 0644)
 		if err != nil {
+			sendSaveFileStatusResponse(rw, false)
 			fmt.Printf("error encountered when writing chunk %d to file: %s", chunk.Index, err)
+			return
 		}
 	}
 
 	// Convert merkle tree to json and write to file
 	merkleTreeJSON, err := json.Marshal(messagePayload.MerkleTree)
 	if err != nil {
+		sendSaveFileStatusResponse(rw, false)
 		fmt.Printf("error encountered when marshalling merkle tree: %s", err)
 		return
 	}
 
 	err = os.WriteFile(folderName+"/merkletree.json", merkleTreeJSON, 0644)
 	if err != nil {
+		sendSaveFileStatusResponse(rw, false)
 		fmt.Printf("error encountered when writing merkle tree: %s", err)
 		return
 	}
@@ -122,11 +127,31 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage) {
 	// Announce to the P2P network that the node is providing the file
 	_, err = ProvideContent(ctx, cmd.NodeState.DHT, messagePayload.MerkleTree.Root.Hash)
 	if err != nil {
+		sendSaveFileStatusResponse(rw, false)
 		fmt.Printf("error encountered when announcing providing content: %s", err)
 		return
 	}
 
 	// TODO: Save contentID to file for persistence
+
+	sendSaveFileStatusResponse(rw, true)
+}
+
+// Helper function to return the result of the save file request to the requester
+// Payload of SaveFileResponse is just a success boolean
+func sendSaveFileStatusResponse(rw *bufio.ReadWriter, success bool) {
+	payload, err := json.Marshal(success)
+	if err != nil {
+		fmt.Printf("error encountered when marshalling payload: %s", err)
+		return
+	}
+
+	err = sendMessageDownStream(SaveFileResponse, payload, rw)
+
+	if err != nil {
+		fmt.Printf("error encountered when sending save file status response: %s", err)
+		return
+	}
 }
 
 // Handler for when a node receives a request for certain chunks held on the node
@@ -139,7 +164,7 @@ func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 		return
 	}
 
-	var chunks []core.Chunk
+	var chunks []*core.Chunk
 	var chunksIndices []int
 	var merkleTree core.MerkleTree
 	var proofs []core.MerkleProof
@@ -152,7 +177,7 @@ func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 			fmt.Printf("error encountered when reading chunk %d: %s", index, err)
 			// Do not return as can still send any chunks that do not error
 		} else {
-			chunks = append(chunks, core.Chunk{Index: index, Data: chunk})
+			chunks = append(chunks, &core.Chunk{Index: index, Data: chunk})
 			// Save the index if successful too to show which chunks have successfully been returned
 			chunksIndices = append(chunksIndices, index)
 		}

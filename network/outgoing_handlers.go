@@ -123,7 +123,7 @@ func requestChunksWorker(ctx context.Context, host host.Host, providers []peer.A
 		peerID := providers[rand.Intn(len(providers))].ID
 
 		// Send the request and check for errors as well as the correct response type
-		response, err := SendMessage(ctx, host, peerID, RequestChunks, jsonPayload)
+		response, err := SendMessageReturnResponse(ctx, host, peerID, RequestChunks, jsonPayload)
 		if err != nil {
 			fmt.Printf("error requesting chunks: %v\n", err)
 			continue
@@ -172,8 +172,79 @@ func handleRequestChunksResponse(payload json.RawMessage, merkleRoot []byte, que
 	// Send each valid chunk to the collector
 	for index, chunk := range messagePayload.Chunks {
 		if core.ValidateMerkleProof(chunk.Data, merkleRoot, messagePayload.MerkleProofs[index]) {
-			queue <- &messagePayload.Chunks[index]
+			queue <- chunk
 		}
 	}
 	return
+}
+
+// Handler for requesting other nodes to hold the chunks of your file
+func requestSaveFile(ctx context.Context, host host.Host, merkleTree *core.MerkleTree, chunks []*core.Chunk, replicationFactor int) error {
+	// Get a list of all connected peers and select replicationFactor number of random nodes to send the file to
+	allPeers := host.Network().Peers()
+	selectedPeers, err := SelectRandomPeers(allPeers, replicationFactor)
+	if err != nil {
+		fmt.Printf("error randomly selecting peers to replicate file on: %v\n", err)
+		return err
+	}
+
+	// Set up vars for goroutine management and start a worker for each peer to send the file to
+	result := make(chan bool)
+	successful := 0
+	for _, peer := range selectedPeers {
+		go requestSaveFileWorker(ctx, host, merkleTree, chunks, peer, result)
+	}
+
+	// Wait until all workers are finished
+	for i := 0; i < len(selectedPeers); i++ {
+		if <-result {
+			successful++
+		}
+	}
+
+	// If no workers were successful in saving the file, return an error
+	if successful == 0 {
+		return errors.New("all peers failed to save file")
+	}
+	return nil
+}
+
+// A worker sends a SaveFile request to a single peer
+func requestSaveFileWorker(ctx context.Context, host host.Host, merkleTree *core.MerkleTree, chunks []*core.Chunk, peer peer.ID, success chan bool) {
+	// Set up the JSON payload
+	payload := SaveFilePayload{
+		Chunks:     chunks,
+		MerkleTree: merkleTree,
+	}
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Printf("error encountered when marshalling payload: %s\n", err)
+		success <- false
+		return
+	}
+
+	// Send the SaveFile request and wait for its status response
+	response, err := SendMessageReturnResponse(ctx, host, peer, SaveFile, jsonPayload)
+	if err != nil {
+		fmt.Printf("error sending request: %v\n", err)
+		success <- false
+		return
+	}
+
+	// Check that the response type is correct
+	if response.Type != SaveFileResponse {
+		fmt.Printf("incorrect message response type: %s", err)
+		success <- false
+		return
+	}
+
+	// Check the success status of the response
+	var responseStatus bool
+	err = json.Unmarshal(response.Payload, &responseStatus)
+	if err != nil {
+		fmt.Printf("error encountered when unmarshalling response: %s\n", err)
+		success <- false
+		return
+	}
+	success <- responseStatus
 }

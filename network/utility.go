@@ -216,8 +216,8 @@ func SelectRandomPeers(allPeers []peer.ID, number int) ([]peer.ID, error) {
 	return selectedPeers, nil
 }
 
-// SendMessage sends a message to a specified peer
-func SendMessage(ctx context.Context, host host.Host, peerID peer.ID, requestType MessageType, payload []byte) (Message, error) {
+// SendMessageReturnResponse sends a message to a specified peer and returns the response to the message
+func SendMessageReturnResponse(ctx context.Context, host host.Host, peerID peer.ID, requestType MessageType, payload []byte) (Message, error) {
 	// Create a stream context that times out after a minute to prevent infinite waiting on peer node
 	streamCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
