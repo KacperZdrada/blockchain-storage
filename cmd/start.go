@@ -5,6 +5,7 @@ import (
 	"blockchain-storage/network"
 	"context"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/spf13/cobra"
 	"sync"
@@ -12,10 +13,12 @@ import (
 
 // Structure for holding the current nodes state
 type State struct {
-	Mutex      *sync.Mutex
+	Mutex      *sync.Mutex      // Mutex for the state
 	Blockchain *core.Blockchain // Active blockchain
-	Host       host.Host
-	DHT        *dht.IpfsDHT
+	Host       host.Host        // Libp2p host interface for the node
+	DHT        *dht.IpfsDHT     // Distributed hash table interface
+	PubSub     *pubsub.PubSub   // Pubsub interface for the node
+	Topic      *pubsub.Topic    // Topic interface for the pubsub system
 }
 
 // Global variable holding a pointer to the state

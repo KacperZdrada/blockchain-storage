@@ -9,6 +9,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -217,7 +218,7 @@ func SelectRandomPeers(allPeers []peer.ID, number int) ([]peer.ID, error) {
 }
 
 // SendMessageReturnResponse sends a message to a specified peer and returns the response to the message
-func SendMessageReturnResponse(ctx context.Context, host host.Host, peerID peer.ID, requestType MessageType, payload []byte) (Message, error) {
+func SendMessageReturnResponse(ctx context.Context, host host.Host, peerID peer.ID, requestType MessageType, payload interface{}) (Message, error) {
 	// Create a stream context that times out after a minute to prevent infinite waiting on peer node
 	streamCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -258,9 +259,15 @@ func SendMessageReturnResponse(ctx context.Context, host host.Host, peerID peer.
 }
 
 // Helper function used to send messages down a stream via a buffer
-func sendMessageDownStream(messageType MessageType, payload []byte, rw *bufio.ReadWriter) error {
-	// First encode the message into json
-	jsonResponse, err := json.Marshal(Message{Type: messageType, Payload: payload})
+func sendMessageDownStream(messageType MessageType, payload interface{}, rw *bufio.ReadWriter) error {
+	// Encode the payload into json
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	// Encode the message into json
+	jsonResponse, err := json.Marshal(Message{Type: messageType, Payload: jsonPayload})
 	if err != nil {
 		return err
 	}
@@ -277,4 +284,45 @@ func sendMessageDownStream(messageType MessageType, payload []byte, rw *bufio.Re
 		return err
 	}
 	return nil
+}
+
+// SetUpPubSub - used to set up the libp2p GossipSub protocol on the host and to subscribe to a topic
+func SetUpPubSub(ctx context.Context, host host.Host, topicToJoin string) (*pubsub.PubSub, *pubsub.Topic, error) {
+	// Set up the GossibSub protocol
+	pubsub, err := pubsub.NewGossipSub(ctx, host)
+	if err != nil {
+		fmt.Printf("error encountered when creating pubsub: %s", err)
+		return nil, nil, err
+	}
+
+	// Subscribe to the topic
+	topic, err := pubsub.Join(topicToJoin)
+	if err != nil {
+		fmt.Printf("error encountered when joining topicToJoin: %s", err)
+		return nil, nil, err
+	}
+
+	// Start the handler for messages on the topic
+	go pubsubHandler(ctx, host.ID(), topic)
+
+	return pubsub, topic, nil
+}
+
+func BroadcastPubSubMessage(ctx context.Context, topic *pubsub.Topic, messageType MessageType, payload interface{}) error {
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Printf("error encountered when marshalling payload: %s", err)
+		return err
+	}
+
+	message, err := json.Marshal(Message{
+		Type:    messageType,
+		Payload: jsonPayload,
+	})
+	if err != nil {
+		fmt.Printf("error encountered when marshalling message: %s", err)
+		return err
+	}
+
+	return topic.Publish(ctx, message)
 }

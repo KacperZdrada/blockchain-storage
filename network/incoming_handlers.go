@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"io"
 	"os"
 	"strconv"
@@ -50,8 +52,6 @@ func determineHandler(ctx context.Context, rw *bufio.ReadWriter) {
 
 		// Determine the message type and call the appropriate handler
 		switch message.Type {
-		case SaveNewBlock:
-			handleSaveNewBlock(message.Payload)
 		case SaveFile:
 			handleSaveFile(ctx, message.Payload, rw)
 		case RequestChunks:
@@ -246,5 +246,42 @@ func handleRequestBlocksResponse(message json.RawMessage) {
 	// Add each block to the blockchain
 	for _, block := range messagePayload.Blocks {
 		cmd.NodeState.Blockchain.AddBlock(block)
+	}
+}
+
+// Function to handle any incoming pubsub messages
+func pubsubHandler(ctx context.Context, ownId peer.ID, topic *pubsub.Topic) {
+	sub, err := topic.Subscribe()
+	if err != nil {
+		fmt.Printf("error encountered when subscribing to topic: %s", err)
+		return
+	}
+	defer sub.Cancel()
+
+	// Infinitely loop waiting for new messages broadcasted on the subscribed topic
+	for {
+		msg, err := sub.Next(ctx)
+		if err != nil {
+			fmt.Printf("error encountered when reading pubsub message: %s", err)
+			continue
+		}
+
+		// Reject any messages sent by the host
+		if msg.GetFrom() == ownId {
+			continue
+		}
+
+		var message Message
+		if err := json.Unmarshal(msg.GetData(), &message); err != nil {
+			fmt.Printf("error encountered when unmarshalling message: %s", err)
+			continue
+		}
+
+		switch message.Type {
+		case SaveNewBlock:
+			handleSaveNewBlock(message.Payload)
+		default:
+			fmt.Printf("unknown message type: %s", message.Type)
+		}
 	}
 }

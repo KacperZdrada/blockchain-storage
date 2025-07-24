@@ -113,17 +113,12 @@ func requestChunksWorker(ctx context.Context, host host.Host, providers []peer.A
 			MerkleRoot:   hex.EncodeToString(merkleRoot),
 			ChunkIndices: batch,
 		}
-		jsonPayload, err := json.Marshal(payload)
-		if err != nil {
-			fmt.Printf("Error marshalling payload: %s\n", err)
-			continue
-		}
 
 		// Select a random peer
 		peerID := providers[rand.Intn(len(providers))].ID
 
 		// Send the request and check for errors as well as the correct response type
-		response, err := SendMessageReturnResponse(ctx, host, peerID, RequestChunks, jsonPayload)
+		response, err := SendMessageReturnResponse(ctx, host, peerID, RequestChunks, payload)
 		if err != nil {
 			fmt.Printf("error requesting chunks: %v\n", err)
 			continue
@@ -211,20 +206,13 @@ func requestSaveFile(ctx context.Context, host host.Host, merkleTree *core.Merkl
 
 // A worker sends a SaveFile request to a single peer
 func requestSaveFileWorker(ctx context.Context, host host.Host, merkleTree *core.MerkleTree, chunks []*core.Chunk, peer peer.ID, success chan bool) {
-	// Set up the JSON payload
 	payload := SaveFilePayload{
 		Chunks:     chunks,
 		MerkleTree: merkleTree,
 	}
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		fmt.Printf("error encountered when marshalling payload: %s\n", err)
-		success <- false
-		return
-	}
 
 	// Send the SaveFile request and wait for its status response
-	response, err := SendMessageReturnResponse(ctx, host, peer, SaveFile, jsonPayload)
+	response, err := SendMessageReturnResponse(ctx, host, peer, SaveFile, payload)
 	if err != nil {
 		fmt.Printf("error sending request: %v\n", err)
 		success <- false

@@ -11,6 +11,10 @@ import (
 // Define the protocol name
 const protocol = "blockchain-storage"
 
+// Define the topic name for the pubsub system of the app
+// All messages sent via pubsub will use the same topic and be handled via a switch statement
+const mainTopic = "blockchain-storage-topic"
+
 // REQUEST DEFINITIONS
 
 // Define a new type for type of message
@@ -18,14 +22,14 @@ type MessageType string
 
 // Define the various constants that the message type type can be (i.e. all the different message types)
 const (
-	SaveNewBlock          MessageType = "SaveBlock"
-	SaveFile              MessageType = "SaveFile"
-	SaveFileResponse      MessageType = "SaveFileResponse"
-	RequestChunks         MessageType = "RequestChunks"
-	RequestChunksResponse MessageType = "RequestChunksResponse"
-	RequestBlocks         MessageType = "RequestBlocks"
-	RequestBlocksResponse MessageType = "RequestBlocksResponse"
-	RequestBlockchain     MessageType = "RequestBlockchain"
+	SaveNewBlock          MessageType = "SaveBlock"             // Pubsub system
+	SaveFile              MessageType = "SaveFile"              // Direct stream system
+	SaveFileResponse      MessageType = "SaveFileResponse"      // Direct stream system
+	RequestChunks         MessageType = "RequestChunks"         // Direct stream system
+	RequestChunksResponse MessageType = "RequestChunksResponse" // Direct stream system
+	RequestBlocks         MessageType = "RequestBlocks"         // Direct stream system
+	RequestBlocksResponse MessageType = "RequestBlocksResponse" // Direct stream system
+	RequestBlockchain     MessageType = "RequestBlockchain"     // Direct stream system
 )
 
 // Define the message structure holding its type and json payload
