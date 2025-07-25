@@ -2,12 +2,15 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"os"
 	"sync"
+	"blockchain-storage/network"
 )
 
 // Blockchain structure
@@ -40,32 +43,43 @@ func (blockchain *Blockchain) AddBlockToEnd(block *Block) {
 }
 
 // Function to add a new block to the blockchain (via pointer)
-func (blockchain *Blockchain) AddBlock(block *Block) {
+// Returns a boolean value for if operation was successful or not
+func (blockchain *Blockchain) AddBlock(block *Block) bool {
 	blockchain.Mutex.Lock()
 	defer blockchain.Mutex.Unlock()
 
-	// Initialise a queue of blocks to process
+	// Initialise a queue of blocks to process and a variable to hold the success status of initial block
 	blocksToProcess := []*Block{block}
+	initialBlockAdded := false
 
 	// Process each block one at a time from the queue
 	for len(blocksToProcess) > 0 {
 		blockToProcess := blocksToProcess[0]
 		blocksToProcess = blocksToProcess[1:]
-		orphanBlocksToProcess := blockchain.addBlockHelper(blockToProcess)
+		orphanBlocksToProcess, success := blockchain.addBlockHelper(blockToProcess)
+
+		// Check if the block that was just processed was the intial block passed into function and not orphan
+		if bytes.Equal(blockToProcess.Hash, block.Hash) {
+			initialBlockAdded = success
+		}
+
 		if len(orphanBlocksToProcess) > 0 {
 			blocksToProcess = append(blocksToProcess, orphanBlocksToProcess...)
 		}
 	}
+
+	return initialBlockAdded
 }
 
 // Helper function that performs all checks and decides whether a block should be added to the main chain or onto
 // a fork chain
-// The return type is []*Block because this function also returns orphan blocks that can be handled once the passed
-// in block has been processed
-func (blockchain *Blockchain) addBlockHelper(newBlock *Block) []*Block {
+// The return type is ([]*Block, bool) because this function returns orphan blocks that can be handled once the passed
+// in block has been processed, and a success status flag as to whether the passed in block was added to the blockchain
+// or not
+func (blockchain *Blockchain) addBlockHelper(newBlock *Block) ([]*Block, bool) {
 	// Check if the newBlock already exists in the blockchain and if it does simply reject it
 	if _, exists := blockchain.BlocksMapByHash[hex.EncodeToString(newBlock.Hash)]; exists {
-		return nil
+		return nil, false
 	}
 
 	// Check if the parent block of the new block exists
@@ -74,12 +88,12 @@ func (blockchain *Blockchain) addBlockHelper(newBlock *Block) []*Block {
 		// If the parent block does not exist, then the new block is an orphan and should be added to the orphan pool
 		// TODO: Add peer request here for parent block
 		blockchain.OrphanPool[hex.EncodeToString(newBlock.Hash)] = newBlock
-		return nil
+		return nil, false
 	}
 
 	// Check for validity with the parent block (such as correct proof of work, indexes, etc.)
 	if !newBlock.IsValid(prevBlock, uint(5)) {
-		return nil
+		return nil, false
 	}
 
 	// As all checks have passed, block is valid so add it to the maps tracking all blocks
@@ -109,7 +123,7 @@ func (blockchain *Blockchain) addBlockHelper(newBlock *Block) []*Block {
 		}
 	}
 
-	return orphansToProcess
+	return orphansToProcess, true
 }
 
 // Function that reorganises the main chain given a longer fork
@@ -218,7 +232,7 @@ func (blockchain *Blockchain) validateChain() bool {
 
 // Function designed to run as goroutine that listens for any blocks added to the mempool and immediately mines them
 // It takes in as a parameter the mutex for the node state (which holds and locks the blockchain structure)
-func (blockchain *Blockchain) mempoolHandler() {
+func (blockchain *Blockchain) mempoolHandler(ctx context.Context, topic *pubsub.Topic) {
 	for block := range blockchain.Mempool {
 
 		// Set the prevhash of the block and index according to the last block on the blockchain
@@ -231,11 +245,18 @@ func (blockchain *Blockchain) mempoolHandler() {
 		err := block.Mine(uint(5), 4, 3)
 		if err != nil {
 			fmt.Printf("error when attempting to mine block: %s", err)
+			// TODO: Check if continue needed
 		}
 
 		// Add the block to the chain (which will also handle any issues if the blockchain has been updated during
 		// mining)
-		blockchain.AddBlock(block)
+		success := blockchain.AddBlock(block)
+		if success {
+			err := network.BroadcastBlock(ctx, block, topic)
+			if err != nil {
+				fmt.Printf("error when attempting to broadcast block: %s", err)
+			}
+		}
 	}
 }
 

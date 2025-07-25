@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/ipfs/go-cid"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multihash"
@@ -235,4 +236,14 @@ func requestSaveFileWorker(ctx context.Context, host host.Host, merkleTree *core
 		return
 	}
 	success <- responseStatus
+}
+
+// Broadcast a newly mined block to the network
+func BroadcastBlock(ctx context.Context, block *core.Block, topic *pubsub.Topic) error {
+	err := BroadcastPubSubMessage(ctx, topic, SaveNewBlock, block)
+	if err != nil {
+		fmt.Printf("error broadcasting block: %v\n", err)
+		return err
+	}
+	return nil
 }
