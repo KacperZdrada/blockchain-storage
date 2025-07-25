@@ -247,3 +247,23 @@ func BroadcastBlock(ctx context.Context, block *core.Block, topic *pubsub.Topic)
 	}
 	return nil
 }
+
+// Request blocks by their hashes
+func RequestBlocksHandler(ctx context.Context, host host.Host, peer peer.ID, blocks [][]byte) {
+	payload := RequestBlocksPayload{
+		BlockHashes: blocks,
+	}
+
+	response, err := SendMessageReturnResponse(ctx, host, peer, RequestBlocks, payload)
+
+	if err != nil {
+		fmt.Printf("error requesting blocks: %v\n", err)
+		return
+	}
+	if response.Type != RequestBlocksResponse {
+		fmt.Printf("incorrect message response type: %s\n", response.Type)
+		return
+	}
+
+	handleRequestBlocksResponse(ctx, response.Payload, peer)
+}

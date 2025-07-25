@@ -48,7 +48,7 @@ type RequestChunksPayload struct {
 
 // RequestBlocksPayload defines the structure of a message that will request blocks from peers
 type RequestBlocksPayload struct {
-	BlockIndices []int `json:"blockIndices"`
+	BlockHashes [][]byte `json:"blockIndices"`
 }
 
 // SaveFile defines the structure of a message that requests to save a file on the node

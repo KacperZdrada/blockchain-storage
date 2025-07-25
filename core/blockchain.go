@@ -1,6 +1,8 @@
 package core
 
 import (
+	"blockchain-storage/cmd"
+	"blockchain-storage/network"
 	"bytes"
 	"context"
 	"encoding/hex"
@@ -8,9 +10,9 @@ import (
 	"errors"
 	"fmt"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"os"
 	"sync"
-	"blockchain-storage/network"
 )
 
 // Blockchain structure
@@ -44,7 +46,7 @@ func (blockchain *Blockchain) AddBlockToEnd(block *Block) {
 
 // Function to add a new block to the blockchain (via pointer)
 // Returns a boolean value for if operation was successful or not
-func (blockchain *Blockchain) AddBlock(block *Block) bool {
+func (blockchain *Blockchain) AddBlock(context context.Context, block *Block, sender peer.ID) bool {
 	blockchain.Mutex.Lock()
 	defer blockchain.Mutex.Unlock()
 
@@ -56,9 +58,9 @@ func (blockchain *Blockchain) AddBlock(block *Block) bool {
 	for len(blocksToProcess) > 0 {
 		blockToProcess := blocksToProcess[0]
 		blocksToProcess = blocksToProcess[1:]
-		orphanBlocksToProcess, success := blockchain.addBlockHelper(blockToProcess)
+		orphanBlocksToProcess, success := blockchain.addBlockHelper(context, blockToProcess, sender)
 
-		// Check if the block that was just processed was the intial block passed into function and not orphan
+		// Check if the block that was just processed was the initial block passed into function and not orphan
 		if bytes.Equal(blockToProcess.Hash, block.Hash) {
 			initialBlockAdded = success
 		}
@@ -76,7 +78,7 @@ func (blockchain *Blockchain) AddBlock(block *Block) bool {
 // The return type is ([]*Block, bool) because this function returns orphan blocks that can be handled once the passed
 // in block has been processed, and a success status flag as to whether the passed in block was added to the blockchain
 // or not
-func (blockchain *Blockchain) addBlockHelper(newBlock *Block) ([]*Block, bool) {
+func (blockchain *Blockchain) addBlockHelper(ctx context.Context, newBlock *Block, sender peer.ID) ([]*Block, bool) {
 	// Check if the newBlock already exists in the blockchain and if it does simply reject it
 	if _, exists := blockchain.BlocksMapByHash[hex.EncodeToString(newBlock.Hash)]; exists {
 		return nil, false
@@ -86,8 +88,15 @@ func (blockchain *Blockchain) addBlockHelper(newBlock *Block) ([]*Block, bool) {
 	prevBlock, prevBlockExists := blockchain.BlocksMapByHash[hex.EncodeToString(newBlock.PrevHash)]
 	if !prevBlockExists {
 		// If the parent block does not exist, then the new block is an orphan and should be added to the orphan pool
-		// TODO: Add peer request here for parent block
 		blockchain.OrphanPool[hex.EncodeToString(newBlock.Hash)] = newBlock
+
+		// To increase performance, request the missing parent block immediately from the sender
+		// If the sender is the node itself, an error has occurred as it should not have mined an orphan block and in
+		// such a situation will therefore not have its parent block either
+		if sender == cmd.NodeState.Host.ID() {
+			return nil, false
+		}
+		network.RequestBlocksHandler(ctx, cmd.NodeState.Host, sender, [][]byte{newBlock.PrevHash})
 		return nil, false
 	}
 
@@ -217,6 +226,20 @@ func (blockchain *Blockchain) GetBlocksByIndices(indices []int) []*Block {
 	return blocks
 }
 
+// Function to retrieve pointers to blocks according to hashes
+func (blockchain *Blockchain) GetBlocksByHashes(hashes [][]byte) []*Block {
+	blockchain.Mutex.RLock()
+	defer blockchain.Mutex.RUnlock()
+	var blocks []*Block
+	for _, hash := range hashes {
+		block, found := blockchain.BlocksMapByHash[hex.EncodeToString(hash)]
+		if found {
+			blocks = append(blocks, block)
+		}
+	}
+	return blocks
+}
+
 // Function to validate the entire blockchain (works with blockchains length >= 1)
 func (blockchain *Blockchain) validateChain() bool {
 	blockchain.Mutex.RLock()
@@ -250,7 +273,7 @@ func (blockchain *Blockchain) mempoolHandler(ctx context.Context, topic *pubsub.
 
 		// Add the block to the chain (which will also handle any issues if the blockchain has been updated during
 		// mining)
-		success := blockchain.AddBlock(block)
+		success := blockchain.AddBlock(ctx, block, cmd.NodeState.Host.ID())
 		if success {
 			err := network.BroadcastBlock(ctx, block, topic)
 			if err != nil {

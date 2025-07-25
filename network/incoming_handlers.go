@@ -69,7 +69,7 @@ func determineHandler(ctx context.Context, rw *bufio.ReadWriter) {
 // Handler for when a node receives a new blockchain block
 // Payload structure:
 // { Block }
-func handleSaveNewBlock(payload json.RawMessage) {
+func handleSaveNewBlock(ctx context.Context, payload json.RawMessage, sender peer.ID) {
 	// Initialise the block variable and unmarshall the json into it
 	var block core.Block
 	if err := json.Unmarshal(payload, &block); err != nil {
@@ -78,7 +78,7 @@ func handleSaveNewBlock(payload json.RawMessage) {
 		return
 	}
 	// Add block to blockchain (which handles verification, forks, orphans, reorganisation, etc.)
-	cmd.NodeState.Blockchain.AddBlock(&block)
+	cmd.NodeState.Blockchain.AddBlock(ctx, &block, sender)
 }
 
 // Handler for when a node receives a new file to store
@@ -220,7 +220,7 @@ func handleRequestBlocks(payload json.RawMessage, rw *bufio.ReadWriter) {
 	}
 
 	// Get all the requested blocks that the node has and marshall the response payload
-	jsonPayload, err := json.Marshal(RequestBlocksResponsePayload{Blocks: cmd.NodeState.Blockchain.GetBlocksByIndices(messagePayload.BlockIndices)})
+	jsonPayload, err := json.Marshal(RequestBlocksResponsePayload{Blocks: cmd.NodeState.Blockchain.GetBlocksByHashes(messagePayload.BlockHashes)})
 	if err != nil {
 		fmt.Printf("error encountered when marshalling response payload: %s", err)
 		return
@@ -235,7 +235,7 @@ func handleRequestBlocks(payload json.RawMessage, rw *bufio.ReadWriter) {
 }
 
 // Function to handle response to requested blocks
-func handleRequestBlocksResponse(message json.RawMessage) {
+func handleRequestBlocksResponse(ctx context.Context, message json.RawMessage, sender peer.ID) {
 	// Unmarshall the received blocks
 	var messagePayload RequestBlocksResponsePayload
 	if err := json.Unmarshal(message, &messagePayload); err != nil {
@@ -245,7 +245,7 @@ func handleRequestBlocksResponse(message json.RawMessage) {
 
 	// Add each block to the blockchain
 	for _, block := range messagePayload.Blocks {
-		cmd.NodeState.Blockchain.AddBlock(block)
+		cmd.NodeState.Blockchain.AddBlock(ctx, block, sender)
 	}
 }
 
@@ -279,7 +279,7 @@ func pubsubHandler(ctx context.Context, ownId peer.ID, topic *pubsub.Topic) {
 
 		switch message.Type {
 		case SaveNewBlock:
-			handleSaveNewBlock(message.Payload)
+			handleSaveNewBlock(ctx, message.Payload, msg.GetFrom())
 		default:
 			fmt.Printf("unknown message type: %s", message.Type)
 		}
