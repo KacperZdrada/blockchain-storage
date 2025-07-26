@@ -20,6 +20,7 @@ func init() {
 }
 
 // Structure of a single block in the blockchain
+// TODO: Add chunk number to the block
 
 type Block struct {
 	Index      int       `json:"index"`      // Index of the block

@@ -12,7 +12,7 @@ type Chunk struct {
 }
 
 // Function that chunks a file given a filepath and a chunk size in MB
-func ChunkFile(filepath string, chunkSizeMB int64) ([]Chunk, error) {
+func ChunkFile(filepath string, chunkSizeMB int64) ([]*Chunk, error) {
 	// Open the file and check for any errors. Defer the closing of the file for when the function returns
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -21,7 +21,7 @@ func ChunkFile(filepath string, chunkSizeMB int64) ([]Chunk, error) {
 	defer file.Close()
 
 	// Declare the chunks array and a buffer to hold the read chunks
-	var chunks []Chunk
+	var chunks []*Chunk
 	buffer := make([]byte, chunkSizeMB*1024*1024)
 	counter := 0
 	for {
@@ -34,7 +34,7 @@ func ChunkFile(filepath string, chunkSizeMB int64) ([]Chunk, error) {
 			// Create a copy of the bytes read and append to chunks (as buffer is only declared once outside loop)
 			chunk := make([]byte, bytesRead)
 			copy(chunk, buffer[:bytesRead])
-			chunks = append(chunks, Chunk{Data: chunk, Index: counter})
+			chunks = append(chunks, &Chunk{Data: chunk, Index: counter})
 			counter++
 		}
 		if err != nil {
