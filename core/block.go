@@ -20,7 +20,6 @@ func init() {
 }
 
 // Structure of a single block in the blockchain
-// TODO: Add chunk number to the block
 
 type Block struct {
 	Index      int       `json:"index"`      // Index of the block
@@ -29,6 +28,7 @@ type Block struct {
 	PrevHash   []byte    `json:"prevHash"`   // Hash of the previous block in the blockchain
 	Hash       []byte    `json:"hash"`       // Hash of the current block
 	Nonce      int       `json:"nonce"`      // Nonce used for proof of work
+	ChunkNum   int       `json:"chunkNum"`   // The number of chunks that the file was divided into
 }
 
 // Function to calculate the hash of a block
@@ -165,7 +165,7 @@ func proofOfWorkMiner(ctx context.Context, target *big.Int, startNonce int, nonc
 }
 
 // Function to create a new block and return a pointer to it
-func CreateBlock(blockchain *Blockchain, merkelRoot []byte) *Block {
+func CreateBlock(blockchain *Blockchain, merkelRoot []byte, chunkNum int) *Block {
 	blockchain.Mutex.RLock()
 	prevBlock := blockchain.MainChain[len(blockchain.MainChain)-1]
 	blockchain.Mutex.RUnlock()
@@ -176,6 +176,7 @@ func CreateBlock(blockchain *Blockchain, merkelRoot []byte) *Block {
 		PrevHash:   prevBlock.Hash,
 		Hash:       nil,
 		Nonce:      0,
+		ChunkNum:   chunkNum,
 	}
 	block.Hash = block.calculateHash()
 	return block

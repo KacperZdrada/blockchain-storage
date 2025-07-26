@@ -333,3 +333,11 @@ func BlockchainFromFile(filepath string) (*Blockchain, error) {
 
 	return blockchain, nil
 }
+
+// Function used to determine if block exists within the blockchain for a given merkleRoot
+func (blockchain *Blockchain) BlockExists(merkleRoot []byte) (*Block, bool) {
+	blockchain.Mutex.RLock()
+	defer blockchain.Mutex.RUnlock()
+	block, found := blockchain.BlocksMapByMerkelRoot[hex.EncodeToString(merkleRoot)]
+	return block, found
+}

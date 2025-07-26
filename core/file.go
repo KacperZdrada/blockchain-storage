@@ -49,7 +49,7 @@ func ChunkFile(filepath string, chunkSizeMB int64) ([]*Chunk, error) {
 }
 
 // Function that builds a file from its chunks
-func BuildFile(filepath string, chunks []Chunk) error {
+func BuildFile(filepath string, chunks []*Chunk) error {
 	// Creates a file given the filepath. If it already exists the file gets truncated
 	// Check for any errors and defer the closing of the file until after the function returns
 	file, err := os.Create(filepath)

@@ -13,12 +13,13 @@ import (
 
 // Structure for holding the current nodes state
 type State struct {
-	Mutex      *sync.Mutex      // Mutex for the state
-	Blockchain *core.Blockchain // Active blockchain
-	Host       host.Host        // Libp2p host interface for the node
-	DHT        *dht.IpfsDHT     // Distributed hash table interface
-	PubSub     *pubsub.PubSub   // Pubsub interface for the node
-	Topic      *pubsub.Topic    // Topic interface for the pubsub system
+	Mutex                 *sync.Mutex       // Mutex for the state
+	Blockchain            *core.Blockchain  // Active blockchain
+	Host                  host.Host         // Libp2p host interface for the node
+	DHT                   *dht.IpfsDHT      // Distributed hash table interface
+	PubSub                *pubsub.PubSub    // Pubsub interface for the node
+	Topic                 *pubsub.Topic     // Topic interface for the pubsub system
+	FilenameMerkleRootMap map[string][]byte // Map between filenames and their respective merkle roots
 }
 
 // Global variable holding a pointer to the state
