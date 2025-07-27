@@ -3,10 +3,12 @@ package network
 import (
 	"blockchain-storage/cmd"
 	"blockchain-storage/core"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -147,7 +149,7 @@ func downloadHandler(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Build teh file from the chunks
+	// Build the file from the chunks
 	err = core.BuildFile(requestData.Filename, chunks)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -160,4 +162,56 @@ func downloadHandler(ctx context.Context, w http.ResponseWriter, r *http.Request
 		"status":  "success",
 		"message": fmt.Sprintf("File '%s' has been downloaded.", requestData.Filename),
 	})
+}
+
+// Function to send an intraprocess HTTP request to the background daemon hosting the HTTP server to make a file upload
+func SendHTTPUploadRequest(filename string) error {
+	request := Request{Filename: filename}
+	jsonRequest, err := json.Marshal(request)
+	if err != nil {
+		fmt.Printf("Error marshalling filename into json request: %s\n", err)
+		return err
+	}
+
+	response, err := http.Post("http://localhost:98765/upload", "application/json", bytes.NewBuffer(jsonRequest))
+	if err != nil {
+		fmt.Printf("Error sending file upload request to background daemon: %s\n", err)
+		return err
+	}
+	defer response.Body.Close()
+
+	// Read everything from the stream
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		fmt.Printf("Error reading response body: %s\n", err)
+		return err
+	}
+	fmt.Printf("Response: %s \nStatus: %d\n", string(body), response.StatusCode)
+	return nil
+}
+
+// Function to send an intraprocess HTTP request to the background daemon hosting the HTTP server to make a file download
+func SendHTTPDownloadRequest(filename string) error {
+	request := Request{Filename: filename}
+	jsonRequest, err := json.Marshal(request)
+	if err != nil {
+		fmt.Printf("Error marshalling filename into json request: %s\n", err)
+		return err
+	}
+
+	response, err := http.Post("http://localhost:98765/download", "application/json", bytes.NewBuffer(jsonRequest))
+	if err != nil {
+		fmt.Printf("Error sending file download request to background daemon: %s\n", err)
+		return err
+	}
+	defer response.Body.Close()
+
+	// Read everything from the stream
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		fmt.Printf("Error reading response body: %s\n", err)
+		return err
+	}
+	fmt.Printf("Response: %s \nStatus: %d\n", string(body), response.StatusCode)
+	return nil
 }

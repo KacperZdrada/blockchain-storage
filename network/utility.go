@@ -1,7 +1,6 @@
 package network
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -231,35 +230,28 @@ func SendMessageReturnResponse(ctx context.Context, host host.Host, peerID peer.
 	}
 	defer stream.Close()
 
-	// Create a new buffer for the stream
-	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
-
 	// Send the message down the stream
-	err = sendMessageDownStream(requestType, payload, rw)
+	err = sendMessageDownStream(requestType, payload, stream)
 	if err != nil {
 		fmt.Printf("error encountered when sending message down stream: %s", err)
 		return Message{}, err
 	}
 
-	// Wait for a response from the stream
-	responseString, err := rw.ReadString('\n')
-	if err != nil {
-		fmt.Printf("error encountered when reading response string: %s", err)
-		return Message{}, err
-	}
+	// Create a new json decoder from the stream
+	decoder := json.NewDecoder(stream)
 
 	// Unmarshall the response to the Message type and return it
 	var responseMessage Message
-	err = json.Unmarshal([]byte(responseString), &responseMessage)
+	err = decoder.Decode(&responseMessage)
 	if err != nil {
-		fmt.Printf("error encountered when unmarshalling response: %s", err)
+		fmt.Printf("error encountered when decoding response: %s", err)
 		return Message{}, err
 	}
 	return responseMessage, nil
 }
 
-// Helper function used to send messages down a stream via a buffer
-func sendMessageDownStream(messageType MessageType, payload interface{}, rw *bufio.ReadWriter) error {
+// Helper function used to send messages down a stream
+func sendMessageDownStream(messageType MessageType, payload interface{}, stream network.Stream) error {
 	// Encode the payload into json
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
@@ -267,22 +259,20 @@ func sendMessageDownStream(messageType MessageType, payload interface{}, rw *buf
 	}
 
 	// Encode the message into json
-	jsonResponse, err := json.Marshal(Message{Type: messageType, Payload: jsonPayload})
+	response := Message{
+		Type:    messageType,
+		Payload: jsonPayload,
+	}
+
+	// Create a new json encoder to encode the message onto the stream
+	encoder := json.NewEncoder(stream)
+
+	// Encode the message onto the stream
+	err = encoder.Encode(response)
 	if err != nil {
 		return err
 	}
 
-	// Convert the response, add the message delimiter, and write it to the buffer
-	_, err = rw.WriteString(string(jsonResponse) + "\n")
-	if err != nil {
-		return err
-	}
-
-	// Send all contents in the buffer down the stream
-	err = rw.Flush()
-	if err != nil {
-		return err
-	}
 	return nil
 }
 

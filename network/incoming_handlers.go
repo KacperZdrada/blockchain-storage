@@ -3,7 +3,6 @@ package network
 import (
 	"blockchain-storage/cmd"
 	"blockchain-storage/core"
-	"bufio"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -18,15 +17,15 @@ import (
 
 // Function that the host uses to handle a stream
 func handleStream(ctx context.Context, stream network.Stream) {
-	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
-	// Handle the actual stream in a go routine to allow handleStream to return and be used for the next incoming stream
-	go determineHandler(ctx, rw)
+	defer stream.Close()
+	determineHandler(ctx, stream)
 }
 
-func determineHandler(ctx context.Context, rw *bufio.ReadWriter) {
+func determineHandler(ctx context.Context, stream network.Stream) {
+	decoder := json.NewDecoder(stream)
 	for {
-		// Read a full message (which is all the way up to the \n delimeter)
-		str, err := rw.ReadString('\n')
+		var message Message
+		err := decoder.Decode(&message)
 		if err != nil {
 			if err == io.EOF {
 				// Once the error is an end of file, break from the loop reading the messages
@@ -37,27 +36,15 @@ func determineHandler(ctx context.Context, rw *bufio.ReadWriter) {
 				return
 			}
 		}
-		// If the message is empty or a newline (message delimeter), continue onto the next message
-		if str == "" || str == "\n" {
-			continue
-		}
-
-		// Initialise the variable to hold the message and unmarshal the json into it
-		var message Message
-		if err := json.Unmarshal([]byte(str), &message); err != nil {
-			// If there is an error unmarshalling continue onto the next message
-			fmt.Printf("error encountered when unmarshalling message: %s", err)
-			continue
-		}
 
 		// Determine the message type and call the appropriate handler
 		switch message.Type {
 		case SaveFile:
-			handleSaveFile(ctx, message.Payload, rw)
+			handleSaveFile(ctx, message.Payload, stream)
 		case RequestChunks:
-			handleRequestChunks(message.Payload, rw)
+			handleRequestChunks(message.Payload, stream)
 		case RequestBlocks:
-			handleRequestBlocks(message.Payload, rw)
+			handleRequestBlocks(message.Payload, stream)
 		case RequestBlockchain:
 			handleRequestBlockchain(message.Payload)
 		default:
@@ -82,7 +69,7 @@ func handleSaveNewBlock(ctx context.Context, payload json.RawMessage, sender pee
 }
 
 // Handler for when a node receives a new file to store
-func handleSaveFile(ctx context.Context, payload json.RawMessage, rw *bufio.ReadWriter) {
+func handleSaveFile(ctx context.Context, payload json.RawMessage, stream network.Stream) {
 	// Unmarshall the payload
 	var messagePayload SaveFilePayload
 	if err := json.Unmarshal(payload, &messagePayload); err != nil {
@@ -94,7 +81,7 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage, rw *bufio.Read
 	folderName := hex.EncodeToString(messagePayload.MerkleTree.Root.Hash)
 	err := os.Mkdir(folderName, 0644)
 	if err != nil {
-		sendSaveFileStatusResponse(rw, false)
+		sendSaveFileStatusResponse(stream, false)
 		fmt.Printf("error encountered when creating directory: %s", err)
 		return
 	}
@@ -103,7 +90,7 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage, rw *bufio.Read
 	for _, chunk := range messagePayload.Chunks {
 		err = os.WriteFile(folderName+"/"+strconv.Itoa(chunk.Index), chunk.Data, 0644)
 		if err != nil {
-			sendSaveFileStatusResponse(rw, false)
+			sendSaveFileStatusResponse(stream, false)
 			fmt.Printf("error encountered when writing chunk %d to file: %s", chunk.Index, err)
 			return
 		}
@@ -112,14 +99,14 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage, rw *bufio.Read
 	// Convert merkle tree to json and write to file
 	merkleTreeJSON, err := json.Marshal(messagePayload.MerkleTree)
 	if err != nil {
-		sendSaveFileStatusResponse(rw, false)
+		sendSaveFileStatusResponse(stream, false)
 		fmt.Printf("error encountered when marshalling merkle tree: %s", err)
 		return
 	}
 
 	err = os.WriteFile(folderName+"/merkletree.json", merkleTreeJSON, 0644)
 	if err != nil {
-		sendSaveFileStatusResponse(rw, false)
+		sendSaveFileStatusResponse(stream, false)
 		fmt.Printf("error encountered when writing merkle tree: %s", err)
 		return
 	}
@@ -127,26 +114,26 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage, rw *bufio.Read
 	// Announce to the P2P network that the node is providing the file
 	_, err = ProvideContent(ctx, cmd.NodeState.DHT, messagePayload.MerkleTree.Root.Hash)
 	if err != nil {
-		sendSaveFileStatusResponse(rw, false)
+		sendSaveFileStatusResponse(stream, false)
 		fmt.Printf("error encountered when announcing providing content: %s", err)
 		return
 	}
 
 	// TODO: Save contentID to file for persistence
 
-	sendSaveFileStatusResponse(rw, true)
+	sendSaveFileStatusResponse(stream, true)
 }
 
 // Helper function to return the result of the save file request to the requester
 // Payload of SaveFileResponse is just a success boolean
-func sendSaveFileStatusResponse(rw *bufio.ReadWriter, success bool) {
+func sendSaveFileStatusResponse(stream network.Stream, success bool) {
 	payload, err := json.Marshal(success)
 	if err != nil {
 		fmt.Printf("error encountered when marshalling payload: %s", err)
 		return
 	}
 
-	err = sendMessageDownStream(SaveFileResponse, payload, rw)
+	err = sendMessageDownStream(SaveFileResponse, payload, stream)
 
 	if err != nil {
 		fmt.Printf("error encountered when sending save file status response: %s", err)
@@ -155,7 +142,7 @@ func sendSaveFileStatusResponse(rw *bufio.ReadWriter, success bool) {
 }
 
 // Handler for when a node receives a request for certain chunks held on the node
-func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
+func handleRequestChunks(payload json.RawMessage, stream network.Stream) {
 	// Initialise the payload variable and unmarshall the json into it
 	var messagePayload RequestChunksPayload
 	if err := json.Unmarshal(payload, &messagePayload); err != nil {
@@ -202,7 +189,7 @@ func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 	}
 
 	// Send the response to the requester
-	err = sendMessageDownStream(RequestChunksResponse, jsonPayload, rw)
+	err = sendMessageDownStream(RequestChunksResponse, jsonPayload, stream)
 	if err != nil {
 		fmt.Printf("error encountered when sending response: %s", err)
 	}
@@ -211,7 +198,7 @@ func handleRequestChunks(payload json.RawMessage, rw *bufio.ReadWriter) {
 func handleRequestBlockchain(payload json.RawMessage) {}
 
 // Function to handle incoming request for blocks
-func handleRequestBlocks(payload json.RawMessage, rw *bufio.ReadWriter) {
+func handleRequestBlocks(payload json.RawMessage, stream network.Stream) {
 	// Unmarshall the payload
 	var messagePayload RequestBlocksPayload
 	if err := json.Unmarshal(payload, &messagePayload); err != nil {
@@ -227,7 +214,7 @@ func handleRequestBlocks(payload json.RawMessage, rw *bufio.ReadWriter) {
 	}
 
 	// Send the response to the requester
-	err = sendMessageDownStream(RequestBlocksResponse, jsonPayload, rw)
+	err = sendMessageDownStream(RequestBlocksResponse, jsonPayload, stream)
 	if err != nil {
 		fmt.Printf("error encountered when sending response payload: %s", err)
 		return
