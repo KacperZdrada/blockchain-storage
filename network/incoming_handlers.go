@@ -112,14 +112,15 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage, stream network
 	}
 
 	// Announce to the P2P network that the node is providing the file
-	_, err = ProvideContent(ctx, cmd.NodeState.DHT, messagePayload.MerkleTree.Root.Hash)
+	contentId, err := ProvideContent(ctx, cmd.NodeState.DHT, messagePayload.MerkleTree.Root.Hash)
 	if err != nil {
 		sendSaveFileStatusResponse(stream, false)
 		fmt.Printf("error encountered when announcing providing content: %s", err)
 		return
 	}
 
-	// TODO: Save contentID to file for persistence
+	// This node is now providing the content, and so it needs to save the contentID for future advertising
+	cmd.NodeState.SavedContentIDs = append(cmd.NodeState.SavedContentIDs, &contentId)
 
 	sendSaveFileStatusResponse(stream, true)
 }

@@ -1,6 +1,7 @@
 package network
 
 import (
+	"blockchain-storage/cmd"
 	"context"
 	"encoding/json"
 	"errors"
@@ -76,7 +77,11 @@ func StartNode(ctx context.Context, port int, bootstrapAddr string) (host.Host, 
 	// Advertise that the newly created node is accepting requests on the provided protocol
 	util.Advertise(ctx, routingDiscovery, protocol)
 
-	// TODO: Advertise any saved files
+	// Advertise that the node is providing any files it already has saved
+	err = AdvertiseProvidingContent(ctx, localDHT, cmd.NodeState.SavedContentIDs)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Attempt to discover other peers
 	go discoverPeers(ctx, host, routingDiscovery)
@@ -151,7 +156,7 @@ func discoverPeers(ctx context.Context, host host.Host, routingDiscovery *routin
 	}
 }
 
-// ProvideContent is a function used to advertise to the P2P network that the host holds a certain file
+// ProvideContent is a function used to advertise to the P2P network that the host holds a certain file given its merkleRoot
 func ProvideContent(ctx context.Context, DHT *dht.IpfsDHT, merkleRoot []byte) (cid.Cid, error) {
 	// Create the content ID from the merkleRoot of the file being stored
 	hash, err := multihash.Sum(merkleRoot, multihash.SHA2_256, -1)
@@ -165,6 +170,15 @@ func ProvideContent(ctx context.Context, DHT *dht.IpfsDHT, merkleRoot []byte) (c
 	util.Advertise(ctx, routingDiscovery, contentCid.String())
 
 	return contentCid, nil
+}
+
+// Function used to advertise to the P2P network that the host holds certain files given their contentIDs
+func AdvertiseProvidingContent(ctx context.Context, DHT *dht.IpfsDHT, contentIds []*cid.Cid) error {
+	routingDiscovery := routing.NewRoutingDiscovery(DHT)
+	for _, contentId := range contentIds {
+		util.Advertise(ctx, routingDiscovery, contentId.String())
+	}
+	return nil
 }
 
 // FindProviders will find any nodes that are able to provide the file based on the contentID

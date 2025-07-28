@@ -4,6 +4,7 @@ import (
 	"blockchain-storage/core"
 	"blockchain-storage/network"
 	"context"
+	"github.com/ipfs/go-cid"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -20,6 +21,7 @@ type State struct {
 	PubSub                *pubsub.PubSub    // Pubsub interface for the node
 	Topic                 *pubsub.Topic     // Topic interface for the pubsub system
 	FilenameMerkleRootMap map[string][]byte // Map between filenames and their respective merkle roots
+	SavedContentIDs       []*cid.Cid
 }
 
 // Global variable holding a pointer to the state
@@ -58,6 +60,8 @@ var startCmd = &cobra.Command{
 				return err
 			}
 		}
+
+		// TODO: Run a function that advertises all content every 12 hours or so
 
 		// TODO: Run something blocking until task is killed
 
