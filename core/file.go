@@ -7,14 +7,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"golang.org/x/crypto/scrypt"
 	"io"
 	"os"
 )
 
 // Structure holding a file chunk
 type Chunk struct {
-	Data  []byte
-	Index int
+	Data  []byte `json:"data"`
+	Index int    `json:"index"`
 }
 
 // Secret key type used for encryption
@@ -22,9 +23,16 @@ type Key [32]byte
 
 // Structure holding an encrypted chunk
 type EncryptedChunk struct {
-	Nonce      []byte
-	Ciphertext []byte
-	Index      int
+	Nonce      []byte `json:"nonce"`
+	Ciphertext []byte `json:"ciphertext"`
+	Index      int    `json:"index"`
+}
+
+// Structure holding an encrypted file
+type EncryptedFile struct {
+	Salt       []byte `json:"salt"`
+	Nonce      []byte `json:"nonce"`
+	Ciphertext []byte `json:"ciphertext"`
 }
 
 // Function that chunks a file given a filepath and a chunk size in MB
@@ -114,7 +122,7 @@ func EncryptChunk(chunk *Chunk, key *Key) (*EncryptedChunk, error) {
 		return nil, err
 	}
 
-	// Create a nonce byte slice of the standard gcm size (12 bytes))
+	// Create a nonce byte slice of the standard gcm size (12 bytes)
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
 		fmt.Printf("error creating nonce: %s", err)
@@ -169,4 +177,83 @@ func DecryptChunk(encryptedChunk *EncryptedChunk, key *Key) (*Chunk, error) {
 	}
 
 	return &Chunk{Data: plaintext, Index: encryptedChunk.Index}, nil
+}
+
+// Function to encrypt a file given a user-provided password
+func EncryptFile(plaintext []byte, password string) (*EncryptedFile, error) {
+	// Generate a salt (random information that is used to generate secure key) to prevent two passwords from making
+	// the same key
+	salt := make([]byte, 32)
+	_, err := io.ReadFull(rand.Reader, salt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate a 32 byte secure cryptographic key from the salt and user provided password
+	key, err := scrypt.Key([]byte(password), salt, 32768, 8, 1, 32)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create AES encryption engine
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap the AES engine in the gcm mode of operation
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a nonce byte slice of the standard gcm size (12 bytes)
+	nonce := make([]byte, gcm.NonceSize())
+	_, err = io.ReadFull(rand.Reader, nonce)
+	if err != nil {
+		return nil, err
+	}
+
+	// Encrypt the file
+	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+
+	return &EncryptedFile{
+		Salt:       salt,
+		Nonce:      nonce,
+		Ciphertext: ciphertext,
+	}, nil
+}
+
+// Function used to decrypt a file given a user-provided password
+func DecryptFile(encryptedFile *EncryptedFile, password string) ([]byte, error) {
+	// Generate the same key used for encryption with the password and salt
+	key, err := scrypt.Key([]byte(password), encryptedFile.Salt, 32768, 8, 1, 32)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a new AES encryption engine
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap the engine in the AES mode of operation
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check the provided nonce is the correct length
+	if len(encryptedFile.Nonce) != gcm.NonceSize() {
+		return nil, errors.New("invalid nonce size")
+	}
+
+	// Decrypt the file
+	plaintext, err := gcm.Open(nil, encryptedFile.Nonce, encryptedFile.Ciphertext, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return plaintext, nil
 }
