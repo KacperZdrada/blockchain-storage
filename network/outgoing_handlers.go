@@ -18,7 +18,7 @@ import (
 )
 
 // Handler for requesting the chunks of a file from p2p network nodes
-func requestChunks(ctx context.Context, host host.Host, DHT *dht.IpfsDHT, merkleRoot []byte, chunkNum int) ([]*core.Chunk, error) {
+func requestChunks(ctx context.Context, host host.Host, DHT *dht.IpfsDHT, merkleRoot []byte, key *core.Key, chunkNum int) ([]*core.Chunk, error) {
 	// Get the multihash of the merkle root to use it for the content ID to use
 	hash, err := multihash.Sum(merkleRoot, multihash.SHA2_256, -1)
 	if err != nil {
@@ -72,7 +72,7 @@ func requestChunks(ctx context.Context, host host.Host, DHT *dht.IpfsDHT, merkle
 
 		// Start each worker goroutine
 		for i := 0; i < workers; i++ {
-			go requestChunksWorker(ctx, host, providers, merkleRoot, workQueue, resultsQueue, &wg)
+			go requestChunksWorker(ctx, host, providers, merkleRoot, key, workQueue, resultsQueue, &wg)
 		}
 
 		// Wait for all workers to finish
@@ -106,7 +106,7 @@ func requestChunks(ctx context.Context, host host.Host, DHT *dht.IpfsDHT, merkle
 }
 
 // Worker function used for asynchronously requesting certain chunks of a file
-func requestChunksWorker(ctx context.Context, host host.Host, providers []peer.AddrInfo, merkleRoot []byte,
+func requestChunksWorker(ctx context.Context, host host.Host, providers []peer.AddrInfo, merkleRoot []byte, key *core.Key,
 	workQueue chan []int, resultsChan chan *core.Chunk, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for batch := range workQueue {
@@ -131,7 +131,7 @@ func requestChunksWorker(ctx context.Context, host host.Host, providers []peer.A
 		}
 
 		// Pass the response over to its handler
-		handleRequestChunksResponse(response.Payload, merkleRoot, resultsChan)
+		handleRequestChunksResponse(response.Payload, merkleRoot, key, resultsChan)
 	}
 }
 
@@ -157,7 +157,7 @@ func chunkCollector(downloadedChunks map[int]*core.Chunk, queue chan *core.Chunk
 }
 
 // Function to handle and validate the response of a chunks request
-func handleRequestChunksResponse(payload json.RawMessage, merkleRoot []byte, queue chan *core.Chunk) {
+func handleRequestChunksResponse(payload json.RawMessage, merkleRoot []byte, key *core.Key, queue chan *core.Chunk) {
 	// Unmarshall the json payload
 	var messagePayload RequestChunksResponsePayload
 	if err := json.Unmarshal(payload, &messagePayload); err != nil {
@@ -165,17 +165,22 @@ func handleRequestChunksResponse(payload json.RawMessage, merkleRoot []byte, que
 		return
 	}
 
-	// Send each valid chunk to the collector
+	// Decrypt each chunk and then send each valid chunk to the collector
 	for index, chunk := range messagePayload.Chunks {
-		if core.ValidateMerkleProof(chunk.Data, merkleRoot, messagePayload.MerkleProofs[index]) {
-			queue <- chunk
+		decryptedChunk, err := core.DecryptChunk(chunk, key)
+		if err != nil {
+			fmt.Printf("error decrypting chunk %d: %v", index, err)
+			continue
+		}
+		if core.ValidateMerkleProof(decryptedChunk.Data, merkleRoot, messagePayload.MerkleProofs[index]) {
+			queue <- decryptedChunk
 		}
 	}
 	return
 }
 
 // Handler for requesting other nodes to hold the chunks of your file
-func requestSaveFile(ctx context.Context, host host.Host, merkleTree *core.MerkleTree, chunks []*core.Chunk, replicationFactor int) error {
+func requestSaveFile(ctx context.Context, host host.Host, merkleTree *core.MerkleTree, chunks []*core.Chunk, key *core.Key, replicationFactor int) error {
 	// Get a list of all connected peers and select replicationFactor number of random nodes to send the file to
 	allPeers := host.Network().Peers()
 	selectedPeers, err := SelectRandomPeers(allPeers, replicationFactor)
@@ -188,7 +193,7 @@ func requestSaveFile(ctx context.Context, host host.Host, merkleTree *core.Merkl
 	result := make(chan bool)
 	successful := 0
 	for _, peer := range selectedPeers {
-		go requestSaveFileWorker(ctx, host, merkleTree, chunks, peer, result)
+		go requestSaveFileWorker(ctx, host, merkleTree, chunks, peer, key, result)
 	}
 
 	// Wait until all workers are finished
@@ -206,9 +211,21 @@ func requestSaveFile(ctx context.Context, host host.Host, merkleTree *core.Merkl
 }
 
 // A worker sends a SaveFile request to a single peer
-func requestSaveFileWorker(ctx context.Context, host host.Host, merkleTree *core.MerkleTree, chunks []*core.Chunk, peer peer.ID, success chan bool) {
+func requestSaveFileWorker(ctx context.Context, host host.Host, merkleTree *core.MerkleTree, chunks []*core.Chunk, peer peer.ID, key *core.Key, success chan bool) {
+	// Encrypt all the chunks
+	var encryptedChunks []*core.EncryptedChunk
+	for _, chunk := range chunks {
+		encryptChunk, err := core.EncryptChunk(chunk, key)
+		if err != nil {
+			fmt.Printf("error encountered when encrypting chunk: %v\n", err)
+			success <- false
+			return
+		}
+		encryptedChunks = append(encryptedChunks, encryptChunk)
+	}
+
 	payload := SaveFilePayload{
-		Chunks:     chunks,
+		Chunks:     encryptedChunks,
 		MerkleTree: merkleTree,
 	}
 

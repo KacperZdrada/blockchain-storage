@@ -14,14 +14,15 @@ import (
 
 // Structure for holding the current nodes state
 type State struct {
-	Mutex                 *sync.Mutex       // Mutex for the state
-	Blockchain            *core.Blockchain  // Active blockchain
-	Host                  host.Host         // Libp2p host interface for the node
-	DHT                   *dht.IpfsDHT      // Distributed hash table interface
-	PubSub                *pubsub.PubSub    // Pubsub interface for the node
-	Topic                 *pubsub.Topic     // Topic interface for the pubsub system
-	FilenameMerkleRootMap map[string][]byte // Map between filenames and their respective merkle roots
-	SavedContentIDs       []*cid.Cid
+	Mutex                 *sync.Mutex          // Mutex for the state
+	Blockchain            *core.Blockchain     // Active blockchain
+	Host                  host.Host            // Libp2p host interface for the node
+	DHT                   *dht.IpfsDHT         // Distributed hash table interface
+	PubSub                *pubsub.PubSub       // Pubsub interface for the node
+	Topic                 *pubsub.Topic        // Topic interface for the pubsub system
+	FilenameMerkleRootMap map[string][]byte    // Map between filenames and their respective merkle roots
+	FilenameSecretKeyMap  map[string]*core.Key // Map between filenames and the keys used to encrypt/decrypt their chunks
+	SavedContentIDs       []*cid.Cid           // List of all content the node has received and is available to provide on request
 }
 
 // Global variable holding a pointer to the state
@@ -64,7 +65,9 @@ var startCmd = &cobra.Command{
 		// TODO: Run a function that advertises all content every 12 hours or so
 
 		// TODO: Run something blocking until task is killed
+		killProcess := make(chan bool)
 
+		<-killProcess
 		// TODO: Request latest version of blockchain from peers
 
 		// TODO: Handling for saving the blockchain once this task is killed

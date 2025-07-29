@@ -19,7 +19,7 @@ type Request struct {
 
 // Function used to start the internal HTTP server that is used for intraservice communication between the
 // background daemon and any other requested commands
-func StartHTTPServer(ctx context.Context) *http.Server {
+func StartHTTPServer(ctx context.Context, killProcess chan bool) *http.Server {
 	// Create a new request router (multiplexer)
 	mux := http.NewServeMux()
 
@@ -30,7 +30,9 @@ func StartHTTPServer(ctx context.Context) *http.Server {
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		downloadHandler(ctx, w, r)
 	})
-
+	mux.HandleFunc("/killTask", func(w http.ResponseWriter, r *http.Request) {
+		killProcessHandler(w, r, killProcess)
+	})
 	// The server address is set to localhost to only listen internally
 	server := &http.Server{
 		Addr:    "localhost:98765",
@@ -75,8 +77,18 @@ func uploadHandler(ctx context.Context, w http.ResponseWriter, r *http.Request) 
 	// Create a new merkle tree from the chunks
 	merkleTree := core.NewMerkleTree(chunks)
 
+	// Generate a new secret key for encryption
+	key, err := core.NewKey()
+	if err != nil {
+		fmt.Printf("error generating key: %v\n", err)
+		return
+	}
+
+	// Save the key to the filename
+	cmd.NodeState.FilenameSecretKeyMap[requestData.Filename] = key
+
 	// Send the chunks to be saved across the P2P network
-	err = requestSaveFile(ctx, cmd.NodeState.Host, merkleTree, chunks, 3)
+	err = requestSaveFile(ctx, cmd.NodeState.Host, merkleTree, chunks, key, 3)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -142,8 +154,15 @@ func downloadHandler(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Get the decryption key from the filename
+	key, found := cmd.NodeState.FilenameSecretKeyMap[requestData.Filename]
+	if !found {
+		http.Error(w, "Filename's secret key not found", http.StatusBadRequest)
+		return
+	}
+
 	// Request the file chunks from the P2P network
-	chunks, err := requestChunks(ctx, cmd.NodeState.Host, cmd.NodeState.DHT, merkleRoot, block.ChunkNum)
+	chunks, err := requestChunks(ctx, cmd.NodeState.Host, cmd.NodeState.DHT, merkleRoot, key, block.ChunkNum)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -162,6 +181,28 @@ func downloadHandler(ctx context.Context, w http.ResponseWriter, r *http.Request
 		"status":  "success",
 		"message": fmt.Sprintf("File '%s' has been downloaded.", requestData.Filename),
 	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func killProcessHandler(w http.ResponseWriter, r *http.Request, killProcess chan bool) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	killProcess <- true
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	err := json.NewEncoder(w).Encode(map[string]string{
+		"status":  "success",
+		"message": fmt.Sprintf("Application has been shut down"),
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 // Function to send an intraprocess HTTP request to the background daemon hosting the HTTP server to make a file upload
@@ -207,6 +248,24 @@ func SendHTTPDownloadRequest(filename string) error {
 	defer response.Body.Close()
 
 	// Read everything from the stream
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		fmt.Printf("Error reading response body: %s\n", err)
+		return err
+	}
+	fmt.Printf("Response: %s \nStatus: %d\n", string(body), response.StatusCode)
+	return nil
+}
+
+// Function to kill the background task running the main application
+func SendKillProcessRequest() error {
+	response, err := http.Post("http://localhost:98765/killProcess", "application/json", nil)
+	if err != nil {
+		fmt.Printf("Error sending kill request to background daemon: %s\n", err)
+		return err
+	}
+	defer response.Body.Close()
+
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		fmt.Printf("Error reading response body: %s\n", err)

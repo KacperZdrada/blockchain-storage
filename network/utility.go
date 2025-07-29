@@ -86,6 +86,7 @@ func StartNode(ctx context.Context, port int, bootstrapAddr string) (host.Host, 
 	// Attempt to discover other peers
 	go discoverPeers(ctx, host, routingDiscovery)
 
+	// TODO: Set up pubsub
 	return host, localDHT, nil
 }
 
