@@ -258,7 +258,7 @@ func SendHTTPDownloadRequest(filename string) error {
 }
 
 // Function to kill the background task running the main application
-func SendKillProcessRequest() error {
+func SendHTTPKillProcessRequest() error {
 	response, err := http.Post("http://localhost:98765/killProcess", "application/json", nil)
 	if err != nil {
 		fmt.Printf("Error sending kill request to background daemon: %s\n", err)
