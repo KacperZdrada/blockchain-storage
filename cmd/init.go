@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"blockchain-storage/core"
-	"encoding/json"
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
@@ -28,34 +27,23 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		// Create an empty map between strings (filenames) and keys (keys for encryption)
-		filenameKeyMap := make(map[string]core.Key)
-		bytes, err := json.Marshal(filenameKeyMap)
-		if err != nil {
-			return err
-		}
-
-		// Encrypt this empty map
-		encryptedFile, err := core.EncryptFile(bytes, args[0])
-		if err != nil {
-			return err
-		}
-
-		// Convert the struct holding all encryption details into bytes
-		fileBytes, err := json.Marshal(encryptedFile)
-		if err != nil {
-			return err
-		}
-
-		// Write the encrypted file struct
-		err = os.WriteFile("keys.enc", fileBytes, 0600)
-		if err != nil {
-			return err
-		}
-
 		// Make the storage directory where all chunks will be held
-		storageDir := filepath.Join(appDir, "chunk-storage")
+		storageDir := filepath.Join(appDir, "chunk_storage")
 		err = os.Mkdir(storageDir, 0755)
+		if err != nil {
+			return err
+		}
+
+		// Make the state directory where all blockchain state data will be held
+		stateDir := filepath.Join(appDir, "state_storage")
+		err = os.Mkdir(stateDir, 0755)
+		if err != nil {
+			return err
+		}
+
+		// Create an empty map between strings (filenames) and keys (keys for encryption) and write to file
+		filenameKeyMap := make(map[string]*core.Key)
+		err = core.WriteKeysToFile(filepath.Join(stateDir, "keys.enc"), filenameKeyMap, args[0])
 		if err != nil {
 			return err
 		}

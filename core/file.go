@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"golang.org/x/crypto/scrypt"
@@ -256,4 +257,75 @@ func DecryptFile(encryptedFile *EncryptedFile, password string) ([]byte, error) 
 	}
 
 	return plaintext, nil
+}
+
+// Function used to read any json file into a struct
+func ReadJSONFile(filepath string, structure interface{}) error {
+	fileBytes, err := os.ReadFile(filepath)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(fileBytes, structure)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Function used to write any struct into a JSON file
+func WriteJSONFile(filepath string, structure interface{}) error {
+	bytes, err := json.Marshal(structure)
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(filepath, bytes, 0644)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func WriteKeysToFile(filepath string, filepathKeys map[string]*Key, password string) error {
+	bytes, err := json.Marshal(filepathKeys)
+	if err != nil {
+		return err
+	}
+
+	encryptedFileStruct, err := EncryptFile(bytes, password)
+	if err != nil {
+		return err
+	}
+
+	encryptedBytes, err := json.Marshal(encryptedFileStruct)
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(filepath, encryptedBytes, 0600)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func ReadKeysFromFile(filepath string, password string) (map[string]*Key, error) {
+	var encryptedFile EncryptedFile
+	err := ReadJSONFile(filepath, &encryptedFile)
+	if err != nil {
+		return nil, err
+	}
+
+	plaintext, err := DecryptFile(&encryptedFile, password)
+	if err != nil {
+		return nil, err
+	}
+
+	filepathKeysMap := make(map[string]*Key)
+	err = json.Unmarshal(plaintext, &filepathKeysMap)
+	if err != nil {
+		return nil, err
+	}
+	return filepathKeysMap, nil
 }

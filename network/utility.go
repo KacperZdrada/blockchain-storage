@@ -22,17 +22,17 @@ import (
 	"time"
 )
 
-func StartNode(ctx context.Context, port int, bootstrapAddr string) (host.Host, *dht.IpfsDHT, error) {
+func StartNode(ctx context.Context, port int, bootstrapAddr string) (host.Host, *dht.IpfsDHT, *pubsub.PubSub, *pubsub.Topic, error) {
 	// Generate a key pair for the node's identity
 	priv, _, err := crypto.GenerateKeyPair(crypto.RSA, 2048)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Create a libp2p node
 	host, err := libp2p.New(libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port)), libp2p.Identity(priv))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	host.SetStreamHandler(protocol, func(stream network.Stream) { handleStream(ctx, stream) })
@@ -49,13 +49,13 @@ func StartNode(ctx context.Context, port int, bootstrapAddr string) (host.Host, 
 		// Convert the address string into an address object
 		addr, err := multiaddr.NewMultiaddr(bootstrapAddr)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		// Get peer ID and address
 		peerInfo, err := peer.AddrInfoFromP2pAddr(addr)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		// Add the peer info to list of bootstrap peers
@@ -66,7 +66,7 @@ func StartNode(ctx context.Context, port int, bootstrapAddr string) (host.Host, 
 	if len(bootstrapPeers) > 0 {
 		err := connectToBootstrapPeers(ctx, host, bootstrapPeers)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 	}
 
@@ -80,14 +80,18 @@ func StartNode(ctx context.Context, port int, bootstrapAddr string) (host.Host, 
 	// Advertise that the node is providing any files it already has saved
 	err = AdvertiseProvidingContent(ctx, localDHT, cmd.NodeState.SavedContentIDs)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Attempt to discover other peers
 	go discoverPeers(ctx, host, routingDiscovery)
 
 	// TODO: Set up pubsub
-	return host, localDHT, nil
+	pubsub, topic, err := SetUpPubSub(ctx, host, "blockchain-storage")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return host, localDHT, pubsub, topic, nil
 }
 
 // Function used to connect to a number of bootstrap peers
