@@ -22,14 +22,16 @@ type MessageType string
 
 // Define the various constants that the message type type can be (i.e. all the different message types)
 const (
-	SaveNewBlock          MessageType = "SaveBlock"             // Pubsub system
-	SaveFile              MessageType = "SaveFile"              // Direct stream system
-	SaveFileResponse      MessageType = "SaveFileResponse"      // Direct stream system
-	RequestChunks         MessageType = "RequestChunks"         // Direct stream system
-	RequestChunksResponse MessageType = "RequestChunksResponse" // Direct stream system
-	RequestBlocks         MessageType = "RequestBlocks"         // Direct stream system
-	RequestBlocksResponse MessageType = "RequestBlocksResponse" // Direct stream system
-	RequestBlockchain     MessageType = "RequestBlockchain"     // Direct stream system
+	SaveNewBlock               MessageType = "SaveBlock"                  // Pubsub system
+	SaveFile                   MessageType = "SaveFile"                   // Direct stream system
+	SaveFileResponse           MessageType = "SaveFileResponse"           // Direct stream system
+	RequestChunks              MessageType = "RequestChunks"              // Direct stream system
+	RequestChunksResponse      MessageType = "RequestChunksResponse"      // Direct stream system
+	RequestBlocksByHash        MessageType = "RequestBlocksByHash"        // Direct stream system
+	RequestBlocksResponse      MessageType = "RequestBlocksResponse"      // Direct stream system
+	RequestBlocksByIndex       MessageType = "RequestBlocksByIndex"       // Direct stream system
+	RequestLatestBlock         MessageType = "RequestLatestBlock"         // Direct stream system
+	RequestLatestBlockResponse MessageType = "RequestLatestBlockResponse" // Direct stream system
 )
 
 // Define the message structure holding its type and json payload
@@ -46,9 +48,14 @@ type RequestChunksPayload struct {
 	ChunkIndices []int  `json:"chunkIndices"` //A list of indexes of the chunks wanted
 }
 
-// RequestBlocksPayload defines the structure of a message that will request blocks from peers
-type RequestBlocksPayload struct {
+// RequestBlocksByHashPayload defines the structure of a message that will request blocks from peers via a hash
+type RequestBlocksByHashPayload struct {
 	BlockHashes [][]byte `json:"blockIndices"`
+}
+
+// RequestBlocksByIndexPayload defines the structure of a message that will request blocks from peers via an index
+type RequestBlocksByIndexPayload struct {
+	BlockIndices []int `json:"blockIndices"`
 }
 
 // SaveFile defines the structure of a message that requests to save a file on the node
@@ -69,4 +76,10 @@ type RequestChunksResponsePayload struct {
 // RequestBlocksResponsePayload defines the structure of a response to a blocks request
 type RequestBlocksResponsePayload struct {
 	Blocks []*core.Block `json:"blocks"`
+}
+
+// RequestLatestBlockResponsePayload defines the structure of a response to a latest block on main chain request
+type RequestLatestBlockResponsePayload struct {
+	Index int
+	Hash  []byte
 }

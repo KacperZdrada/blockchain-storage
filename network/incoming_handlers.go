@@ -43,10 +43,12 @@ func determineHandler(ctx context.Context, stream network.Stream) {
 			handleSaveFile(ctx, message.Payload, stream)
 		case RequestChunks:
 			handleRequestChunks(message.Payload, stream)
-		case RequestBlocks:
-			handleRequestBlocks(message.Payload, stream)
-		case RequestBlockchain:
-			handleRequestBlockchain(message.Payload)
+		case RequestBlocksByHash:
+			handleRequestBlocksByHash(message.Payload, stream)
+		case RequestBlocksByIndex:
+			handleRequestBlocksByIndex(message.Payload, stream)
+		case RequestLatestBlock:
+			handleRequestLatestBlock(message.Payload, stream)
 		default:
 			fmt.Printf("unknown message type: %s", message.Type)
 		}
@@ -88,7 +90,7 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage, stream network
 
 	// Write all chunks to separate files with their index as the filename
 	for _, chunk := range messagePayload.Chunks {
-		err = os.WriteFile(folderName+"/"+strconv.Itoa(chunk.Index), chunk.Data, 0644)
+		err = core.WriteJSONFile(folderName+"/"+strconv.Itoa(chunk.Index), chunk)
 		if err != nil {
 			sendSaveFileStatusResponse(stream, false)
 			fmt.Printf("error encountered when writing chunk %d to file: %s", chunk.Index, err)
@@ -152,7 +154,7 @@ func handleRequestChunks(payload json.RawMessage, stream network.Stream) {
 		return
 	}
 
-	var chunks []*core.Chunk
+	var chunks []*core.EncryptedChunk
 	var chunksIndices []int
 	var merkleTree core.MerkleTree
 	var proofs []core.MerkleProof
@@ -160,12 +162,13 @@ func handleRequestChunks(payload json.RawMessage, stream network.Stream) {
 
 	// Read in each requested chunk into memory
 	for _, index := range messagePayload.ChunkIndices {
-		chunk, err := os.ReadFile(folderName + strconv.Itoa(index))
+		var chunk core.EncryptedChunk
+		err := core.ReadJSONFile(folderName+strconv.Itoa(index), &chunk)
 		if err != nil {
 			fmt.Printf("error encountered when reading chunk %d: %s", index, err)
 			// Do not return as can still send any chunks that do not error
 		} else {
-			chunks = append(chunks, &core.Chunk{Index: index, Data: chunk})
+			chunks = append(chunks, &chunk)
 			// Save the index if successful too to show which chunks have successfully been returned
 			chunksIndices = append(chunksIndices, index)
 		}
@@ -196,12 +199,29 @@ func handleRequestChunks(payload json.RawMessage, stream network.Stream) {
 	}
 }
 
-func handleRequestBlockchain(payload json.RawMessage) {}
+// Function to handle incoming request for the latest block on the main chain
+func handleRequestLatestBlock(payload json.RawMessage, stream network.Stream) {
+	latestBlock := cmd.NodeState.Blockchain.LastBlock()
+	jsonPayload, err := json.Marshal(RequestLatestBlockResponsePayload{
+		Index: latestBlock.Index,
+		Hash:  latestBlock.Hash,
+	})
+	if err != nil {
+		fmt.Printf("error encountered when marshalling payload: %s", err)
+		return
+	}
 
-// Function to handle incoming request for blocks
-func handleRequestBlocks(payload json.RawMessage, stream network.Stream) {
+	err = sendMessageDownStream(RequestLatestBlockResponse, jsonPayload, stream)
+	if err != nil {
+		fmt.Printf("error encountered when sending response: %s", err)
+		return
+	}
+}
+
+// Function to handle incoming request for blocks (requested by hash)
+func handleRequestBlocksByHash(payload json.RawMessage, stream network.Stream) {
 	// Unmarshall the payload
-	var messagePayload RequestBlocksPayload
+	var messagePayload RequestBlocksByHashPayload
 	if err := json.Unmarshal(payload, &messagePayload); err != nil {
 		fmt.Printf("error encountered when unmarshalling payload: %s", err)
 		return
@@ -220,6 +240,28 @@ func handleRequestBlocks(payload json.RawMessage, stream network.Stream) {
 		fmt.Printf("error encountered when sending response payload: %s", err)
 		return
 	}
+}
+
+// Function to handle incoming request for blocks (requested by index)
+func handleRequestBlocksByIndex(payload json.RawMessage, stream network.Stream) {
+	var messagePayload RequestBlocksByIndexPayload
+	if err := json.Unmarshal(payload, &messagePayload); err != nil {
+		fmt.Printf("error encountered when unmarshalling payload: %s", err)
+		return
+	}
+
+	jsonPayload, err := json.Marshal(RequestBlocksResponsePayload{Blocks: cmd.NodeState.Blockchain.GetBlocksByIndices(messagePayload.BlockIndices)})
+	if err != nil {
+		fmt.Printf("error encountered when marshalling response payload: %s", err)
+		return
+	}
+
+	err = sendMessageDownStream(RequestBlocksResponse, jsonPayload, stream)
+	if err != nil {
+		fmt.Printf("error encountered when sending response payload: %s", err)
+		return
+	}
+
 }
 
 // Function to handle response to requested blocks

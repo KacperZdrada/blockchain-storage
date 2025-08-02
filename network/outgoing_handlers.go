@@ -266,12 +266,12 @@ func BroadcastBlock(ctx context.Context, block *core.Block, topic *pubsub.Topic)
 }
 
 // Request blocks by their hashes
-func RequestBlocksHandler(ctx context.Context, host host.Host, peer peer.ID, blocks [][]byte) {
-	payload := RequestBlocksPayload{
+func RequestBlocksByHashHandler(ctx context.Context, host host.Host, peer peer.ID, blocks [][]byte) {
+	payload := RequestBlocksByHashPayload{
 		BlockHashes: blocks,
 	}
 
-	response, err := SendMessageReturnResponse(ctx, host, peer, RequestBlocks, payload)
+	response, err := SendMessageReturnResponse(ctx, host, peer, RequestBlocksByHash, payload)
 
 	if err != nil {
 		fmt.Printf("error requesting blocks: %v\n", err)
@@ -283,4 +283,123 @@ func RequestBlocksHandler(ctx context.Context, host host.Host, peer peer.ID, blo
 	}
 
 	handleRequestBlocksResponse(ctx, response.Payload, peer)
+}
+
+// Request blocks by their indices
+func RequestBlocksByIndexHandler(ctx context.Context, host host.Host, peer peer.ID, blocks []int) error {
+	payload := RequestBlocksByIndexPayload{
+		BlockIndices: blocks,
+	}
+	response, err := SendMessageReturnResponse(ctx, host, peer, RequestBlocksByIndex, payload)
+	if err != nil {
+		fmt.Printf("error requesting blocks: %v\n", err)
+		return err
+	}
+	if response.Type != RequestBlocksResponse {
+		fmt.Printf("incorrect message response type: %s\n", response.Type)
+		return err
+	}
+
+	handleRequestBlocksResponse(ctx, response.Payload, peer)
+
+	return nil
+}
+
+// Helper structs for requesting the latest block
+type latestBlockResult struct {
+	Index int
+	Hash  string
+	Peer  peer.ID
+}
+
+type latestBlock struct {
+	Index int
+	Hash  string
+}
+
+// Function that handles syncing the blockchain with the network upon node start up
+func StartUpSync(ctx context.Context, host host.Host, latestLocalBlockIndex int) error {
+	// Select some random peers to poll for sync
+	allPeers := host.Network().Peers()
+	selectedPeers, err := SelectRandomPeers(allPeers, 5)
+	if err != nil {
+		fmt.Printf("error randomly selecting peers to sync: %v\n", err)
+		return err
+	}
+
+	// Start up a worker to poll each selected peer
+	result := make(chan *latestBlockResult)
+	for _, peer := range selectedPeers {
+		go requestLatestBlockWorker(ctx, host, peer, result)
+	}
+
+	// Count the number of times each block has been received and map the peer(s) that returned it
+	counter := make(map[latestBlock]int)
+	blockToPeerMap := make(map[latestBlock][]peer.ID)
+	for i := 0; i < len(selectedPeers); i++ {
+		message := <-result
+		if message != nil {
+			details := latestBlock{
+				Index: message.Index,
+				Hash:  message.Hash,
+			}
+			counter[details]++
+			blockToPeerMap[details] = append(blockToPeerMap[details], message.Peer)
+		}
+	}
+
+	// If there are no entries in the counter map, all goroutines errored and returned nil
+	if len(counter) == 0 {
+		return errors.New("no peer latest block request was successful")
+	}
+
+	// Find the block that was returned the highest amount of times (block closest to consensus)
+	var latestBlock latestBlock
+	highest := 0
+	for block, tally := range counter {
+		if tally > highest {
+			highest = tally
+			latestBlock = block
+		}
+	}
+
+	// The blocks to request will be all the blocks between the latest local block and the hieght of the most agreed upon "network" latest block
+	var indicesToRequest []int
+	for i := latestLocalBlockIndex; i <= latestBlock.Index; i++ {
+		indicesToRequest = append(indicesToRequest, i)
+	}
+
+	// Request these blocks from one of the peers that returned the most agreed upon "network" latest block
+	err = RequestBlocksByIndexHandler(ctx, host, blockToPeerMap[latestBlock][0], indicesToRequest)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// A worker function that requests the latest block from a single peer
+func requestLatestBlockWorker(ctx context.Context, host host.Host, peer peer.ID, result chan *latestBlockResult) {
+	response, err := SendMessageReturnResponse(ctx, host, peer, RequestLatestBlock, nil)
+	if err != nil {
+		fmt.Printf("error requesting latest block: %v\n", err)
+		result <- nil
+		return
+	}
+	if response.Type != RequestLatestBlockResponse {
+		fmt.Printf("incorrect message response type: %s\n", response.Type)
+		result <- nil
+		return
+	}
+	var responsePayload RequestLatestBlockResponsePayload
+	err = json.Unmarshal(response.Payload, &responsePayload)
+	if err != nil {
+		fmt.Printf("error encountered when unmarshalling response: %s\n", err)
+		result <- nil
+		return
+	}
+	result <- &latestBlockResult{
+		Index: responsePayload.Index,
+		Hash:  hex.EncodeToString(responsePayload.Hash),
+		Peer:  peer,
+	}
 }

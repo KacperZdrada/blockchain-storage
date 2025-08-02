@@ -96,7 +96,7 @@ func (blockchain *Blockchain) addBlockHelper(ctx context.Context, newBlock *Bloc
 		if sender == cmd.NodeState.Host.ID() {
 			return nil, false
 		}
-		network.RequestBlocksHandler(ctx, cmd.NodeState.Host, sender, [][]byte{newBlock.PrevHash})
+		network.RequestBlocksByHashHandler(ctx, cmd.NodeState.Host, sender, [][]byte{newBlock.PrevHash})
 		return nil, false
 	}
 
