@@ -339,12 +339,12 @@ func StartUpSync(ctx context.Context, host host.Host, latestLocalBlockIndex int)
 	for i := 0; i < len(selectedPeers); i++ {
 		message := <-result
 		if message != nil {
-			details := latestBlock{
+			block := latestBlock{
 				Index: message.Index,
 				Hash:  message.Hash,
 			}
-			counter[details]++
-			blockToPeerMap[details] = append(blockToPeerMap[details], message.Peer)
+			counter[block]++
+			blockToPeerMap[block] = append(blockToPeerMap[block], message.Peer)
 		}
 	}
 
@@ -354,23 +354,23 @@ func StartUpSync(ctx context.Context, host host.Host, latestLocalBlockIndex int)
 	}
 
 	// Find the block that was returned the highest amount of times (block closest to consensus)
-	var latestBlock latestBlock
+	var latestNetworkBlock latestBlock
 	highest := 0
 	for block, tally := range counter {
 		if tally > highest {
 			highest = tally
-			latestBlock = block
+			latestNetworkBlock = block
 		}
 	}
 
 	// The blocks to request will be all the blocks between the latest local block and the hieght of the most agreed upon "network" latest block
 	var indicesToRequest []int
-	for i := latestLocalBlockIndex; i <= latestBlock.Index; i++ {
+	for i := latestLocalBlockIndex; i <= latestNetworkBlock.Index; i++ {
 		indicesToRequest = append(indicesToRequest, i)
 	}
 
 	// Request these blocks from one of the peers that returned the most agreed upon "network" latest block
-	err = RequestBlocksByIndexHandler(ctx, host, blockToPeerMap[latestBlock][0], indicesToRequest)
+	err = RequestBlocksByIndexHandler(ctx, host, blockToPeerMap[latestNetworkBlock][0], indicesToRequest)
 	if err != nil {
 		return err
 	}

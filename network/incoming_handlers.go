@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -48,7 +49,7 @@ func determineHandler(ctx context.Context, stream network.Stream) {
 		case RequestBlocksByIndex:
 			handleRequestBlocksByIndex(message.Payload, stream)
 		case RequestLatestBlock:
-			handleRequestLatestBlock(message.Payload, stream)
+			handleRequestLatestBlock(stream)
 		default:
 			fmt.Printf("unknown message type: %s", message.Type)
 		}
@@ -80,8 +81,14 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage, stream network
 	}
 
 	// Create a new directory with the name of the merkle root of the file to be stored
-	folderName := hex.EncodeToString(messagePayload.MerkleTree.Root.Hash)
-	err := os.Mkdir(folderName, 0644)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Printf("error encountered when getting user home dir: %s", err)
+		return
+	}
+	appDir := filepath.Join(homeDir, ".blockchain-storage")
+	folderName := filepath.Join(appDir, hex.EncodeToString(messagePayload.MerkleTree.Root.Hash))
+	err = os.Mkdir(folderName, 0644)
 	if err != nil {
 		sendSaveFileStatusResponse(stream, false)
 		fmt.Printf("error encountered when creating directory: %s", err)
@@ -90,7 +97,7 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage, stream network
 
 	// Write all chunks to separate files with their index as the filename
 	for _, chunk := range messagePayload.Chunks {
-		err = core.WriteJSONFile(folderName+"/"+strconv.Itoa(chunk.Index), chunk)
+		err = core.WriteJSONFile(filepath.Join(folderName, strconv.Itoa(chunk.Index)), chunk)
 		if err != nil {
 			sendSaveFileStatusResponse(stream, false)
 			fmt.Printf("error encountered when writing chunk %d to file: %s", chunk.Index, err)
@@ -106,7 +113,7 @@ func handleSaveFile(ctx context.Context, payload json.RawMessage, stream network
 		return
 	}
 
-	err = os.WriteFile(folderName+"/merkletree.json", merkleTreeJSON, 0644)
+	err = os.WriteFile(filepath.Join(folderName, "merkletree.json"), merkleTreeJSON, 0644)
 	if err != nil {
 		sendSaveFileStatusResponse(stream, false)
 		fmt.Printf("error encountered when writing merkle tree: %s", err)
@@ -158,12 +165,18 @@ func handleRequestChunks(payload json.RawMessage, stream network.Stream) {
 	var chunksIndices []int
 	var merkleTree core.MerkleTree
 	var proofs []core.MerkleProof
-	folderName := messagePayload.MerkleRoot + "/"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Printf("error encountered when getting user home dir: %s", err)
+		return
+	}
+	appDir := filepath.Join(homeDir, ".blockchain-storage")
+	folderName := filepath.Join(appDir, messagePayload.MerkleRoot)
 
 	// Read in each requested chunk into memory
 	for _, index := range messagePayload.ChunkIndices {
 		var chunk core.EncryptedChunk
-		err := core.ReadJSONFile(folderName+strconv.Itoa(index), &chunk)
+		err := core.ReadJSONFile(filepath.Join(folderName, strconv.Itoa(index)), &chunk)
 		if err != nil {
 			fmt.Printf("error encountered when reading chunk %d: %s", index, err)
 			// Do not return as can still send any chunks that do not error
@@ -175,7 +188,7 @@ func handleRequestChunks(payload json.RawMessage, stream network.Stream) {
 	}
 
 	// Read in the merkle tree
-	merkleTreeBytes, err := os.ReadFile(folderName + "merkletree.json")
+	merkleTreeBytes, err := os.ReadFile(filepath.Join(folderName, "merkletree.json"))
 	if err != nil {
 		fmt.Printf("error encountered when writing merkle tree: %s", err)
 	}
@@ -200,11 +213,11 @@ func handleRequestChunks(payload json.RawMessage, stream network.Stream) {
 }
 
 // Function to handle incoming request for the latest block on the main chain
-func handleRequestLatestBlock(payload json.RawMessage, stream network.Stream) {
-	latestBlock := cmd.NodeState.Blockchain.LastBlock()
+func handleRequestLatestBlock(stream network.Stream) {
+	block := cmd.NodeState.Blockchain.LastBlock()
 	jsonPayload, err := json.Marshal(RequestLatestBlockResponsePayload{
-		Index: latestBlock.Index,
-		Hash:  latestBlock.Hash,
+		Index: block.Index,
+		Hash:  block.Hash,
 	})
 	if err != nil {
 		fmt.Printf("error encountered when marshalling payload: %s", err)
